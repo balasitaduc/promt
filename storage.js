@@ -29,7 +29,7 @@ export class Repository {
   async addReport(report, fingerprint) {
     // Retain only the normalized report. Never persist media, API keys or headers.
     const safe = { id: report.id, createdAt: report.createdAt, engine: report.engine, meta: report.meta, analysis: report.analysis, elapsedMs: report.elapsedMs };
-    if (JSON.stringify(safe).length > 250000) throw new Error('Báo cáo quá lớn để lưu lịch sử (tối đa 250 KB). Bạn vẫn có thể xuất tệp.');
+    if (new TextEncoder().encode(JSON.stringify(safe)).length > 250000) throw new Error('Báo cáo quá lớn để lưu lịch sử (tối đa 250 KB UTF-8). Bạn vẫn có thể xuất tệp.');
     this.state.history = [safe, ...this.state.history.filter(item => item.id !== safe.id)].slice(0, 20);
     if (this.state.settings.cache && fingerprint) {
       this.state.cache = { [fingerprint]: safe, ...Object.fromEntries(Object.entries(this.state.cache).filter(([key]) => key !== fingerprint).slice(0, 7)) };

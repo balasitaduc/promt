@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MD Phân Tích AI — Video Prompt",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "minimum_chrome_version": "116",
   "description": "Phân tích khung hình video và tạo prompt tái tạo theo từng cảnh.",
   "permissions": ["activeTab", "scripting", "sidePanel", "storage"],

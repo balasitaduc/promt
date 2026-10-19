@@ -5,7 +5,7 @@ from shutil import copyfile
 root = Path(__file__).resolve().parents[1]
 target = root / 'dist' / 'video-to-prompt.zip'
 target.parent.mkdir(exist_ok=True)
-files = ['manifest.json', 'background.js', 'content.js', 'core.js', 'local.js', 'storage.js', 'reports.js', 'sidepanel.html', 'sidepanel.css', 'sidepanel.js', 'README.md', 'PRIVACY.md']
+files = ['manifest.json', 'background.js', 'content.js', 'core.js', 'deep.js', 'local.js', 'storage.js', 'reports.js', 'sidepanel.html', 'sidepanel.css', 'sidepanel.js', 'README.md', 'PRIVACY.md']
 with ZipFile(target, 'w', ZIP_DEFLATED) as archive:
     for name in files:
         archive.write(root / name, name)

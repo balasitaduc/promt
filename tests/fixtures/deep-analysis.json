@@ -1,0 +1,146 @@
+{
+  "summary": "Video tổng hợp đỏ và xanh",
+  "visualStyle": "Hình học đơn giản",
+  "limitations": "Ảnh mẫu; không phân tích âm thanh, không biết lens thật.",
+  "masterPrompt": "A cinematic red-to-blue abstract film",
+  "negativePrompt": "Blur, artifacts",
+  "scenes": [
+    {
+      "start": 0,
+      "end": 2,
+      "description": "<img src=x onerror=alert(1)>",
+      "camera": "Static",
+      "lighting": "Flat",
+      "motion": "Estimated color change",
+      "prompt": "A bright geometric square on a red and blue background"
+    }
+  ],
+  "deep": {
+    "schemaVersion": 3,
+    "masterPromptVi": "Tái tạo một video đồ họa tối giản với khối vuông trắng, nền đỏ chuyển xanh. Giữ kích thước vật thể, kiểm tra diễn tiến trên video và tránh nhấp nháy.",
+    "masterPromptEn": "Recreate a minimal graphic film with a white square moving across red and blue backgrounds. Preserve square dimensions, confirm timing against the reference, and avoid flickering.",
+    "styleBible": "Giữ bề mặt phẳng, tương phản trắng / màu bão hòa và hình vuông nhất quán.",
+    "sceneDetails": [
+      {
+        "sceneId": "scene_001",
+        "fields": {
+          "subject": "Khối vuông trắng",
+          "characterIds": "OBJECT_01",
+          "appearance": "Hình vuông phẳng màu trắng",
+          "wardrobe": "Không có trang phục; bề mặt trắng đồng nhất",
+          "action": "Ước lượng: hình vuông dịch chuyển ngang qua ảnh mẫu",
+          "environment": "Nền phẳng đỏ chuyển xanh",
+          "timeOfDay": null,
+          "foreground": "Không thấy vật thể phía trước",
+          "background": "Nền đỏ / xanh",
+          "shotSize": "Khung rộng toàn bố cục hình học",
+          "cameraAngle": "Góc nhìn chính diện đồ họa",
+          "cameraMovement": "Không thấy bằng chứng máy quay chuyển động",
+          "lensLook": null,
+          "composition": "Khối vuông nằm trên nền tối giản",
+          "depthOfField": null,
+          "lighting": "Màu phẳng; không suy ra setup đèn",
+          "colorGrade": "Đỏ và xanh bão hòa",
+          "mood": "Đồ họa tối giản",
+          "visualStyle": "Motion graphic hình học",
+          "continuity": "Giữ màu và kích thước khối vuông qua đoạn",
+          "transition": "Nền thay màu; cần xác nhận trên video",
+          "pace": "Một phân đoạn ngắn, hành động ngang"
+        },
+        "promptVi": "Khối vuông trắng trên nền đỏ chuyển xanh, bố cục đồ họa tối giản; chuyển động ngang là ước lượng cần đối chiếu video.",
+        "promptEn": "A flat white square against a red-to-blue graphic background, minimal composition, estimated horizontal action; verify motion against the source.",
+        "imagePrompt": "Static white square on a saturated red background, clean graphic composition.",
+        "videoPrompt": "Two-second minimal graphic clip, white square shifts horizontally, background changes from red to blue; keep square dimensions stable.",
+        "negativePrompt": "Warped square, flicker, gradients, compression artifacts",
+        "evidence": [
+          {
+            "timestamp": 0,
+            "observation": "Ảnh đầu có khối vuông trắng trên nền đỏ."
+          }
+        ],
+        "uncertainties": [
+          "Không biết lens/ánh sáng thật; chỉ thấy đồ họa."
+        ]
+      }
+    ],
+    "characters": [
+      {
+        "id": "OBJECT_01",
+        "name": "Khối vuông trắng",
+        "appearance": "Khối vuông trắng phẳng",
+        "wardrobe": "Không áp dụng: đây là vật thể đồ họa",
+        "continuity": "Giữ kích thước và màu trắng ổn định",
+        "sceneIds": [
+          "scene_001"
+        ],
+        "referenceTimestamp": 0,
+        "evidence": [
+          {
+            "timestamp": 0,
+            "observation": "Khối vuông trắng hiển thị trên nền đỏ."
+          }
+        ]
+      }
+    ],
+    "audio": {
+      "soundDesignSuggestion": "Gợi ý mới: một nhịp điện tử nhẹ khi đổi nền.",
+      "dialogueSuggestion": null
+    },
+    "narrative": {
+      "logline": "Khối vuông đi qua không gian màu tối giản.",
+      "hook": "Tương phản khối trắng trên nền đỏ ngay khung mở.",
+      "beats": [
+        {
+          "sceneId": "scene_001",
+          "purpose": "Thiết lập vật thể và chuyển đổi bảng màu",
+          "onScreenText": "Gợi ý mới: Chuyển sắc",
+          "transition": "Kiểm tra điểm đổi nền trên video"
+        }
+      ],
+      "ending": "Gợi ý kết ở nền xanh.",
+      "loop": "Gợi ý nối vị trí cuối về đầu; chưa kiểm chứng loop nguồn."
+    },
+    "viral": {
+      "hookAssessment": "Khối trắng tương phản rõ trên nền đỏ; chưa có dữ liệu giữ chân thực tế.",
+      "retentionRisks": [
+        "Đoạn quá tĩnh nếu không có diễn tiến."
+      ],
+      "improvements": [
+        "Đặt thay đổi thị giác gần đầu clip."
+      ]
+    },
+    "productionPlan": [
+      {
+        "phase": "Chuẩn bị hình học",
+        "action": "Dùng shape thay cho mô hình nhân vật.",
+        "deliverable": "Ảnh tham chiếu và clip thử",
+        "minutesMin": 3,
+        "minutesMax": 8,
+        "assumption": "Đề xuất mới; một người dùng công cụ keyframe hình học, không gồm chờ render."
+      }
+    ],
+    "recreation": {
+      "referenceStrategy": "Lấy ảnh đầu làm mốc kích thước khối vuông.",
+      "continuityChecklist": [
+        "Giữ tỷ lệ cạnh và màu trắng."
+      ],
+      "generationSteps": [
+        "Tạo ảnh tĩnh bố cục chuẩn.",
+        "Animate vị trí và nền theo timeline."
+      ],
+      "editingPlan": "Đối chiếu điểm đổi nền trước khi xuất.",
+      "verificationChecklist": [
+        "Kiểm tra cạnh khối vuông không bị méo."
+      ],
+      "toolRecommendations": [
+        "Công cụ animation keyframe 2D; đây là gợi ý, không xác định công cụ gốc."
+      ]
+    },
+    "aiAssessment": {
+      "observations": [],
+      "unknowns": [
+        "Không có bằng chứng xác minh nguồn AI hoặc tác giả."
+      ]
+    }
+  }
+}

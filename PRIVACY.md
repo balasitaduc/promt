@@ -9,3 +9,6 @@
 - Khi CORS chặn canvas, Chrome có thể chụp toàn tab trong bộ nhớ rồi cắt đúng vùng video; chỉ ảnh vùng video được giữ để xem trước/gửi phân tích. Giữ video không bị che và kiểm tra các ảnh trước khi đồng ý gửi. DRM, livestream và iframe có thể không hoạt động.
 - Tệp xuất JSON/TXT/Markdown/HTML chứa báo cáo và metadata nguồn; kiểm tra trước khi chia sẻ. Bảng ảnh được lưu xuống máy chỉ khi bấm tải. Nhập JSON chỉ đọc dữ liệu, không thực thi HTML/script; nội dung AI hiển thị bằng văn bản.
 - Không có analytics hoặc backend riêng. Việc nhà cung cấp AI xử lý dữ liệu phụ thuộc điều khoản dịch vụ và tài khoản của bạn. Chỉ gửi nội dung bạn có quyền sử dụng.
+
+- Bản 3.0 bổ sung báo cáo có mô tả chủ thể, trang phục/vật liệu, liên kết cảnh, bằng chứng timestamp và prompt VI/EN do AI trả về. Chỉ gửi cho nhà cung cấp sau khi người dùng chọn chế độ và đồng ý; bản Web do người dùng tự gửi. Những thông tin mô tả đó có thể nằm trong lịch sử/tệp xuất, nên kiểm tra trước khi chia sẻ.
+- Timestamp bằng chứng được kiểm tra với ảnh mẫu, nhưng không xác minh tính đúng đắn của mô tả AI. Không có mô hình xác suất nguồn AI đã hiệu chuẩn và không đọc audio nguồn.

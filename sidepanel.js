@@ -2,10 +2,11 @@ import { MAX_FILE_SIZE, sampleTimes, formatTime, analyze, validateVideoUrl, API_
 import { analyzeLocal } from './local.js';
 import { Repository, browserAdapter, fingerprint } from './storage.js';
 import { REPORT_TABS, renderReport, reportMarkdown } from './reports.js';
+import { attachMeasurements, verifyFrameEvidence } from './deep.js';
 
 const $ = id => document.getElementById(id);
 const video = $('preview'), repository = new Repository(browserAdapter());
-const state = { source: 'tab', engine: 'local', busy: false, scanning: false, fileReady: false, objectUrl: null, meta: null, candidates: [], tabId: null, selectedId: '', frames: [], frameKey: '', sourceKey: '', report: null, reportTab: 0, controller: null };
+const state = { source: 'tab', engine: 'local', busy: false, scanning: false, fileReady: false, objectUrl: null, meta: null, candidates: [], tabId: null, selectedId: '', frames: [], frameKey: '', sourceKey: '', report: null, reportTab: 0, selectedScene: 0, localAnalysis: null, persistenceError: null, controller: null };
 const element = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
 function status(message, error = false) { $('status').textContent = message; $('status').classList.toggle('error', error); }
 function progress(value, label) { $('progress').value = value; $('progress-percent').textContent = `${Math.round(value)}%`; $('progress-label').textContent = label; }
@@ -14,8 +15,9 @@ function frameCount() { return $('quality').value === 'fast' ? 12 : $('quality')
 function language() { return settings().language === 'en' ? 'en' : 'vi'; }
 function clearFrames() {
   state.frames = []; state.frameKey = ''; $('frames').replaceChildren(); $('frame-count-label').textContent = 'Khung hình mẫu · 0'; updateWebPrompt();
+  state.localAnalysis = null;
 }
-function resetReport() { state.report = null; $('run-id').textContent = 'Chưa tạo báo cáo'; render(); }
+function resetReport() { state.report = null; state.selectedScene = 0; state.persistenceError = null; $('run-id').textContent = 'Chưa tạo báo cáo'; render(); }
 function controls() {
   for (const id of ['source-tab', 'source-link', 'source-file', 'video-file', 'open-link', 'video-url', 'video-select', 'capture-tab', 'quality', 'provider', 'api-key', 'model', 'goal', 'settings-open', 'history-open', 'release-memory', 'clear-cache']) $(id).disabled = state.busy;
   document.querySelectorAll('[data-engine]').forEach(button => { button.disabled = state.busy; });
@@ -209,12 +211,13 @@ async function extractFrames(force = false) {
   $('frame-count-label').textContent = `Khung hình mẫu · ${state.frames.length}`; updateWebPrompt(); updateMeta();
 }
 function updateWebPrompt() {
-  $('chatgpt-prompt').value = state.frames.length && state.meta ? `${buildInstruction(state.meta, language(), $('goal').value)}\nI attached a contact sheet of ${state.frames.length} frames in row-major chronological order. Timestamps in seconds: ${state.frames.map(frame => frame.timestamp.toFixed(3)).join(', ')}. If the image is missing, ask me to attach video-frames.jpg; do not infer the video from a link alone. Return the JSON object so I can import it into my extension.` : '';
+  const measured=state.localAnalysis?.deep?.sceneDetails?.map((scene,i)=>({start:state.localAnalysis.scenes[i].start,end:state.localAnalysis.scenes[i].end,measurements:scene.measurements}));
+  $('chatgpt-prompt').value = state.frames.length && state.meta ? `${buildInstruction({...state.meta,measurements:measured}, language(), $('goal').value)}\nI attached a contact sheet of ${state.frames.length} frames in row-major chronological order. Timestamps in seconds: ${state.frames.map(frame => frame.timestamp.toFixed(3)).join(', ')}. If the image is missing, ask me to attach video-frames.jpg; do not infer the video from a link alone. Return the JSON object so I can import it into my extension.` : '';
 }
 async function saveReport(analysis, engine, elapsedMs, cacheKey) {
   state.report = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), engine, meta: { ...state.meta }, analysis, elapsedMs };
   try { await repository.addReport(state.report, cacheKey); }
-  catch (error) { status(`Đã tạo báo cáo nhưng chưa lưu được lịch sử/cache: ${error.message}`, true); }
+  catch (error) { state.persistenceError=error.message; }
   state.reportTab = 0; $('run-id').textContent = state.report.id; render(); controls();
 }
 async function startAnalysis(force = false) {
@@ -222,35 +225,43 @@ async function startAnalysis(force = false) {
   if (!state.meta) { status('Chọn hoặc phát video trước khi phân tích.', true); return; }
   await run(async () => {
     resetReport(); const started = performance.now(); state.controller = new AbortController(); $('cancel').hidden = false;
+    $('state').textContent='PREPARING';progress(1,'Chuẩn bị phân tích chuyên sâu');status('Đang chuẩn bị khung hình và đo dữ liệu theo cảnh…');
     let timeout;
     try {
       await extractFrames(force); checkCancelled();
-      if (state.engine === 'web') {
-        $('state').textContent = 'WEB_READY'; progress(100, 'Storyboard + hướng dẫn đã sẵn sàng');
-        $('engine-status').textContent = 'Đã chuẩn bị ảnh và hướng dẫn. Tự gửi lên Web AI, sau đó nhập JSON trả về.';
-        status('Tải Storyboard, copy hướng dẫn và gửi trong ChatGPT/Gemini. Chưa có kết quả AI cho đến khi bạn nhập JSON.'); return;
-      }
-      const options = { version: 2, engine: state.engine, provider: state.engine === 'cloud' ? $('provider').value : null, model: state.engine === 'cloud' ? $('model').value : null, language: language(), goal: $('goal').value };
+      const options = { version: 3, engine: state.engine, provider: state.engine === 'cloud' ? $('provider').value : null, model: state.engine === 'cloud' ? $('model').value : null, language: language(), goal: $('goal').value };
       const cacheKey = await fingerprint(state.frames, state.meta, options);
       const cached = !force && settings().cache ? repository.state.cache[cacheKey] : null;
-      if (cached) { state.report = cached; $('run-id').textContent = cached.id; $('state').textContent = 'CACHED'; progress(100, 'Đã đọc báo cáo từ cache'); render(); status('Đã dùng kết quả cache. Bấm Phân tích lại để chạy mới.'); return; }
+      if (cached && state.engine !== 'web') { state.report = cached; state.localAnalysis=cached.analysis; $('run-id').textContent = cached.id; $('state').textContent = 'CACHED'; progress(100, 'Đã đọc báo cáo từ cache'); render(); status('Đã dùng kết quả cache. Bấm Phân tích lại để chạy mới.'); return; }
+      $('state').textContent='MEASURING';
+      state.localAnalysis=await analyzeLocal(state.frames,state.meta,$('goal').value,language(),(current,total)=>{checkCancelled();progress(45+current/total*25,`Đo hình ảnh & lập cấu trúc cảnh ${current}/${total}`);});
+      updateWebPrompt();
+      if (state.engine === 'web') {
+        state.report={id:crypto.randomUUID(),createdAt:new Date().toISOString(),engine:'Web AI Package · Số đo Local; chưa có suy luận AI',meta:{...state.meta},analysis:state.localAnalysis,elapsedMs:Math.round(performance.now()-started)};
+        state.reportTab=0;$('run-id').textContent=state.report.id;render();
+        $('state').textContent = 'WEB_READY'; progress(100, 'Storyboard + cấu trúc chuyên sâu đã sẵn sàng');
+        $('engine-status').textContent = 'Đã đo ảnh theo cảnh. Gửi ảnh + hướng dẫn v3 lên Web AI để điền chủ thể, camera, kịch bản và prompt VI/EN.';
+        status('Đã có timeline/số đo và mẫu 22 trường. Các nhận định nội dung vẫn chờ JSON từ Web AI.'); return;
+      }
       $('state').textContent = 'ANALYZING'; let analysis, engine;
       if (state.engine === 'local') {
         engine = 'Local · đo pixel, không có mô hình Vision';
-        analysis = await analyzeLocal(state.frames, state.meta, $('goal').value, language(), (current, total) => { checkCancelled(); progress(45 + current / total * 50, `Đo ảnh cục bộ ${current}/${total}`); });
+        analysis = state.localAnalysis;
       } else {
         if (!$('consent').checked) throw new Error('Cần đồng ý gửi ảnh trước khi gọi API.');
         const selected = representativeFrames(state.frames), provider = $('provider').value;
         engine = `${API_PROVIDERS[provider].label} API · ${$('model').value} · ${selected.length}/${state.frames.length} ảnh`;
         progress(60, `${API_PROVIDERS[provider].label} đang phân tích…`);
         timeout = setTimeout(() => state.controller?.abort('timeout'), 120000);
-        analysis = await analyze({ provider, key: $('api-key').value, model: $('model').value.trim(), frames: selected, meta: state.meta, language: language(), goal: $('goal').value, signal: state.controller.signal });
+        const measurements=state.localAnalysis.deep.sceneDetails.map((scene,i)=>({start:state.localAnalysis.scenes[i].start,end:state.localAnalysis.scenes[i].end,measurements:scene.measurements}));
+        analysis = await analyze({ provider, key: $('api-key').value, model: $('model').value.trim(), frames: selected, meta: {...state.meta,measurements}, language: language(), goal: $('goal').value, signal: state.controller.signal });
+        analysis=attachMeasurements(analysis,state.localAnalysis,state.meta);
       }
       checkCancelled(); const elapsed = Math.round(performance.now() - started);
       await saveReport(analysis, engine, elapsed, cacheKey);
       $('state').textContent = 'COMPLETED'; progress(100, 'Tạo báo cáo'); $('engine-status').textContent = `Hoàn tất: ${engine}. ${analysis.scenes.length} cảnh ước lượng.`;
       $('performance').textContent = `Tổng thời gian: ${elapsed} ms${performance.memory ? ` · JS heap hiện tại: ~${(performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1)} MB (không phải tổng RAM)` : ' · Trình duyệt không cung cấp số đo bộ nhớ'}`;
-      status('Đã tạo báo cáo. Chọn tab để xem chi tiết, copy hoặc xuất tệp.');
+      status(state.persistenceError?`Đã tạo báo cáo, nhưng chưa lưu được lịch sử/cache: ${state.persistenceError}`:'Đã tạo báo cáo chuyên sâu. Chọn cảnh trên timeline, xem 22 trường hoặc copy prompt VI/EN.',!!state.persistenceError);
     } catch (error) {
       if (state.controller?.signal.aborted) {
         const cancelled = new Error(state.controller.signal.reason === 'timeout' ? 'API quá thời gian 120 giây. Thử ít ảnh hơn hoặc đổi model.' : 'Đã hủy phân tích.');
@@ -268,12 +279,13 @@ $('import-result').addEventListener('click', () => run(async () => {
   const text = $('import-json').value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   if (text.length > 1000000) throw new Error('JSON quá lớn (tối đa 1 MB).');
   const analysis = parseAnalysis(text, state.meta.duration);
-  await saveReport(analysis, 'Web AI · JSON do người dùng nhập', 0);
-  $('state').textContent = 'IMPORTED'; progress(100, 'Đã nhập & kiểm tra JSON'); status('Đã nhập kết quả. Kiểm tra nội dung AI với ảnh/video nguồn.');
+  verifyFrameEvidence(analysis.deep,state.frames);
+  await saveReport(attachMeasurements(analysis,state.localAnalysis,state.meta), 'Web AI · JSON do người dùng nhập', 0);
+  $('state').textContent = 'IMPORTED'; progress(100, 'Đã nhập & kiểm tra JSON'); status(state.persistenceError?`Đã nhập kết quả, nhưng chưa lưu được: ${state.persistenceError}`:'Đã nhập kết quả. Kiểm tra các bằng chứng timestamp và nội dung AI với video nguồn.',!!state.persistenceError);
 }));
 function render() {
   $('report-tabs').replaceChildren(...REPORT_TABS.map((title, index) => { const button = element('button', `${index + 1}. ${title}`); button.title = title; button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(state.reportTab === index)); button.addEventListener('click', () => { state.reportTab = index; render(); }); return button; }));
-  renderReport($('result-body'), state.report, state.reportTab, { frames: state.frames, copy, download, seek: async time => {
+  renderReport($('result-body'), state.report, state.reportTab, { frames: state.frames, copy, download, selectedScene:state.selectedScene, promptLanguage:settings().language, onScene:index=>{state.selectedScene=index;state.reportTab=1;render();document.querySelector(`.scene-card[data-scene="${index}"]`)?.scrollIntoView({behavior:'smooth',block:'start'});},seek: async time => {
     try {
       if (state.source === 'file' && state.fileReady) await seek(time);
       else if (state.source !== 'history' && state.tabId) { const result = await tabCommand(state.tabId, { type: 'VP_SEEK', videoId: state.selectedId, time }); if (!result?.ok) throw new Error('Video không còn khả dụng. Quét lại video.'); }
@@ -293,7 +305,8 @@ async function exportFrames() {
     const image = new Image(); image.src = state.frames[i].dataUrl; await image.decode();
     const scale = Math.min((cellW - 12) / image.width, (cellH - 34) / image.height), x = i % columns * cellW, y = Math.floor(i / columns) * cellH;
     ctx.drawImage(image, x + (cellW - image.width * scale) / 2, y + 4, image.width * scale, image.height * scale);
-    ctx.fillStyle = '#f5f8ff'; ctx.font = '14px sans-serif'; ctx.fillText(formatTime(state.frames[i].timestamp), x + 12, y + cellH - 10);
+    const sceneIndex=state.report?.analysis.scenes.findIndex(scene=>state.frames[i].timestamp>=scene.start&&state.frames[i].timestamp<=scene.end)??-1;
+    ctx.fillStyle = '#f5f8ff'; ctx.font = '14px sans-serif'; ctx.fillText(`${sceneIndex>=0?`S${String(sceneIndex+1).padStart(2,'0')} · `:''}F${String(i+1).padStart(3,'0')} · ${formatTime(state.frames[i].timestamp)}`, x + 12, y + cellH - 10);
   }
   const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9)); canvas.width = canvas.height = 0;
   if (!blob) throw new Error('Không tạo được bảng ảnh.'); download(blob, 'video-frames.jpg'); status('Đã tải Storyboard JPEG.');

@@ -12,14 +12,8 @@ from tempfile import TemporaryDirectory
 from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = {
-    'summary': 'Video tổng hợp đỏ và xanh', 'visualStyle': 'Hình học đơn giản',
-    'limitations': 'Chỉ ảnh mẫu, không âm thanh', 'masterPrompt': 'A cinematic red-to-blue abstract film',
-    'negativePrompt': 'Blur, artifacts',
-    'scenes': [{'start': 0, 'end': 2, 'description': '<img src=x onerror=alert(1)>',
-                'camera': 'Static', 'lighting': 'Flat', 'motion': 'Estimated color change',
-                'prompt': 'A bright geometric square on a red and blue background'}]
-}
+OUTPUT = json.loads((ROOT/'tests/fixtures/deep-analysis.json').read_text())
+
 with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     context = playwright.chromium.launch_persistent_context(
         temporary, executable_path=os.environ.get('CHROMIUM_PATH', '/usr/bin/chromium'),
@@ -44,7 +38,7 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     def serve_source(route):
         name = route.request.url.split('/')[-1] or 'sidepanel.html'
         path = ROOT / name
-        if name not in ['sidepanel.html', 'sidepanel.css', 'sidepanel.js', 'core.js', 'local.js', 'reports.js', 'storage.js']:
+        if name not in ['sidepanel.html', 'sidepanel.css', 'sidepanel.js', 'core.js', 'deep.js', 'local.js', 'reports.js', 'storage.js']:
             route.fulfill(status=404); return
         content_type = 'text/javascript' if name.endswith('.js') else 'text/css' if name.endswith('.css') else 'text/html'
         route.fulfill(status=200, content_type=content_type, body=path.read_bytes())
@@ -90,6 +84,19 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     images = page.locator('#frames img').evaluate_all('(images)=>images.map(i=>i.src)')
     assert len(set(images)) >= 4
     expect(page.locator('#result-body')).to_contain_text('không nhận diện chủ thể')
+    assert page.locator('.timeline button').count() >= 2
+    (ROOT/'dist').mkdir(exist_ok=True)
+    page.evaluate('window.scrollTo(0,0)')
+    page.screenshot(path=str(ROOT/'dist/v3-overview.png'),full_page=True)
+    page.locator('.timeline button').nth(1).click()
+    expect(page.locator('#report-tabs button').nth(1)).to_have_attribute('aria-selected','true')
+    expect(page.locator('.scene-card[data-scene="1"]')).to_have_attribute('open','')
+    assert page.locator('.scene-card[data-scene="1"] .field-table dt').count() == 22
+    page.locator('#report-tabs button').nth(2).click()
+    expect(page.locator('#copy-master-vi')).to_be_visible()
+    expect(page.locator('#copy-master-en')).to_be_visible()
+    expect(page.locator('#result-body')).to_contain_text('Image Prompt')
+    expect(page.locator('#result-body')).to_contain_text('Video Prompt')
     saved = page.evaluate('JSON.parse(localStorage.getItem("video_prompt_v2"))')
     assert len(saved['history']) == 1 and len(saved['cache']) == 1
     assert len(saved['history'][0]['analysis']['scenes']) >= 2
@@ -134,6 +141,11 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     page.locator('#import-json').fill('{invalid')
     page.locator('#import-result').click()
     expect(page.locator('#status')).to_contain_text('JSON không hợp lệ')
+    invalid = json.loads(json.dumps(OUTPUT))
+    invalid['deep']['sceneDetails'][0]['sceneId'] = 'scene_999'
+    page.locator('#import-json').fill(json.dumps(invalid))
+    page.locator('#import-result').click()
+    expect(page.locator('#status')).to_contain_text('không khớp')
     page.locator('#import-json').fill(json.dumps(OUTPUT))
     page.locator('#import-result').click()
     expect(page.locator('#state')).to_have_text('IMPORTED')
@@ -171,6 +183,14 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     page.locator('#analyze').click()
     expect(page.locator('#state')).to_have_text('COMPLETED')
     expect(page.locator('#result-body')).to_contain_text(OUTPUT['summary'])
+    for index, expected in [(4,'OBJECT_01'),(5,'chính diện'),(7,'Tương phản'),(8,'Đoạn quá tĩnh'),(9,'3–8 phút'),(10,'Animate vị trí')]:
+        page.locator('#report-tabs button').nth(index).click()
+        expect(page.locator('#result-body')).to_contain_text(expected)
+    page.locator('#report-tabs button').nth(2).click()
+    expect(page.locator('#result-body')).to_contain_text(OUTPUT['deep']['masterPromptVi'])
+    expect(page.locator('#result-body')).to_contain_text(OUTPUT['deep']['masterPromptEn'])
+    page.evaluate('window.scrollTo(0,0)')
+    page.screenshot(path=str(ROOT/'dist/v3-ai-prompts.png'),full_page=True)
     request = next(r for r in requests if r.post_data)
     assert sum(p['type']=='input_image' for p in json.loads(request.post_data)['input'][0]['content']) == 12
     assert request.headers['authorization']=='Bearer test-openai-not-real'
