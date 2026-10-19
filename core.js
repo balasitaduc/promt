@@ -14,7 +14,7 @@ export function sampleTimes(duration, count = 12) {
   if (!Number.isFinite(duration) || duration <= 0 || duration > MAX_DURATION) {
     throw new Error('Chọn video có thời lượng từ trên 0 đến 600 giây; video trực tiếp chưa được hỗ trợ.');
   }
-  if (!Number.isInteger(count) || count < 2 || count > 24) throw new Error('Số khung hình phải từ 2 đến 24.');
+  if (!Number.isInteger(count) || count < 2 || count > 60) throw new Error('Số khung hình phải từ 2 đến 60.');
   const end = Math.max(0, duration - Math.min(0.1, duration / 10));
   return Array.from({ length: count }, (_, i) => end * i / (count - 1));
 }
@@ -43,6 +43,20 @@ export function buildWebPrompt(meta, frames, language = 'vi', goal = '') {
 I have attached a contact sheet with ${frames.length} sampled frames in chronological order, left to right, top to bottom. Their timestamps in seconds are: ${frames.map(f => f.timestamp.toFixed(3)).join(', ')}.
 If no image is attached, ask me to upload video-frames.jpg before analyzing; do not infer the video from a link or these instructions alone.
 Return readable Markdown: overview, visual style, master prompt in English, suggested negative prompt, scene-by-scene analysis with estimated time ranges, and limitations. For each scene describe subject, setting, action, composition, camera, lighting, colors, textures and motion uncertainty, then give an English generation prompt. Keep scene times within 0..${meta.duration.toFixed(2)} seconds. Do not invent sound or unseen details.`;
+}
+
+export function representativeFrames(frames, limit = 24) {
+  if (!Number.isInteger(limit) || limit < 2) throw new Error('Giới hạn khung hình không hợp lệ.');
+  if (frames.length <= limit) return frames;
+  return Array.from({ length: limit }, (_, i) => frames[Math.round(i * (frames.length - 1) / (limit - 1))]);
+}
+
+export function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+}
+
+export function htmlReport(markdown) {
+  return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Báo cáo Video → Prompt</title><style>body{max-width:900px;margin:40px auto;padding:0 24px;font:16px/1.7 system-ui;color:#172033}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style></head><body><pre>${escapeHtml(markdown)}</pre></body></html>`;
 }
 
 export function createPayload(frames, meta, language = 'vi', goal = '') {
@@ -85,7 +99,11 @@ export function parseAnalysis(text, duration) {
     }
     previousEnd = scene.end;
   }
-  return value;
+  return {
+    summary: value.summary, visualStyle: value.visualStyle, limitations: value.limitations,
+    masterPrompt: value.masterPrompt, negativePrompt: value.negativePrompt,
+    scenes: value.scenes.map(scene => ({ start: scene.start, end: scene.end, description: scene.description, camera: scene.camera, lighting: scene.lighting, motion: scene.motion, prompt: scene.prompt }))
+  };
 }
 
 export const API_PROVIDERS = {

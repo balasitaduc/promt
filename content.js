@@ -4,23 +4,39 @@
   if (globalThis.__videoPromptInstalled) return;
   globalThis.__videoPromptInstalled = true;
   let running = false;
-  function pickVideo() {
+  let cancelled = false, sequence = 0;
+  const identities = new WeakMap();
+  function visibleVideos() {
     return [...document.querySelectorAll('video')].filter(video => {
       const r = video.getBoundingClientRect();
       return r.width > 40 && r.height > 40 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
-    }).sort((a, b) => Number(!b.paused) - Number(!a.paused) || b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0];
+    }).sort((a, b) => Number(!b.paused) - Number(!a.paused) || b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight);
+  }
+  function info(video, index) {
+    const source = video.currentSrc || video.src;
+    if (identities.get(video)?.source !== source) identities.set(video, { source, id: `video-${++sequence}` });
+    return { id: identities.get(video).id, name: `${video.paused ? 'Tạm dừng' : 'Đang phát'} · Video ${index + 1}`, duration: Number.isFinite(video.duration) ? video.duration : 0, width: video.videoWidth, height: video.videoHeight };
   }
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
+    if (!message || typeof message.type !== 'string') return false;
+    if (message.type === 'VP_DETECT') { respond({ ok: true, candidates: visibleVideos().map(info), title: document.title, url: location.href }); return false; }
+    if (message.type === 'VP_CANCEL') { cancelled = true; respond({ ok: true }); return false; }
+    if (message.type === 'VP_SEEK') {
+      const target = visibleVideos().find((v, i) => info(v, i).id === message.videoId);
+      if (!target || !Number.isFinite(message.time) || message.time < 0 || message.time > target.duration) { respond({ ok: false }); return false; }
+      try { target.currentTime = message.time; respond({ ok: true }); } catch { respond({ ok: false }); } return false;
+    }
     if (message.type !== 'VP_EXTRACT') return false;
     if (running) { respond({ ok: false, error: 'Đang lấy khung hình video. Vui lòng đợi.' }); return false; }
-    running = true;
+    running = true; cancelled = false;
     (async () => {
-      const video = pickVideo();
+      const videos = visibleVideos();
+      const video = message.videoId ? videos.find((v, i) => info(v, i).id === message.videoId) : videos[0];
       if (!video) throw new Error('Không thấy video đang hiển thị. Mở và phát video rồi thử lại.');
       const duration = video.duration;
       if (!Number.isFinite(duration) || duration <= 0 || duration > 600) throw new Error('Video cần tải xong metadata và dài tối đa 10 phút; không hỗ trợ livestream.');
       const count = Number(message.count);
-      if (!Number.isInteger(count) || count < 2 || count > 24) throw new Error('Số khung hình không hợp lệ.');
+      if (!Number.isInteger(count) || count < 2 || count > 60) throw new Error('Số khung hình không hợp lệ.');
       const state = { time: video.currentTime, paused: video.paused };
       const canvas = document.createElement('canvas');
       const scale = Math.min(1, 960 / Math.max(video.videoWidth, video.videoHeight));
@@ -58,6 +74,7 @@
       video.pause();
       try {
         for (let i = 0; i < count; i++) {
+          if (cancelled) throw new Error('Đã hủy lấy khung hình.');
           await seek((duration - Math.min(0.1, duration / 10)) * i / (count - 1));
           let dataUrl;
           if (!screenshotMode) {
@@ -67,6 +84,7 @@
           }
           if (screenshotMode) dataUrl = await screenshotFrame();
           frames.push({ timestamp: video.currentTime, dataUrl });
+          chrome.runtime.sendMessage({ type: 'VP_PROGRESS', current: i + 1, total: count }).catch(() => {});
         }
         return { ok: true, frames, meta: { name: document.title || 'Video trên tab', duration, width: video.videoWidth, height: video.videoHeight, frameCount: frames.length } };
       } finally {

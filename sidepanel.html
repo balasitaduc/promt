@@ -1,74 +1,22 @@
 <!doctype html>
-<html lang="vi">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Video → Prompt</title>
-  <link rel="stylesheet" href="sidepanel.css">
-  <script type="module" src="sidepanel.js"></script>
-</head>
+<html lang="vi" data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MD Phân Tích AI</title><link rel="stylesheet" href="sidepanel.css"><script type="module" src="sidepanel.js"></script></head>
 <body>
-  <header><span class="logo" aria-hidden="true">V↗P</span><div><h1>Video → Prompt</h1><p>Giải mã hình ảnh. Viết lại ý tưởng.</p></div><span class="badge">BETA</span></header>
-  <main>
-    <section class="intro"><span class="eyebrow">TỪ KHUNG HÌNH ĐẾN Ý TƯỞNG</span><h2>Một video.<br>Nhiều cách tái tạo.</h2><p>Phân tích chủ thể, ánh sáng, góc máy và phong cách để tạo prompt theo từng cảnh.</p></section>
-    <section class="card">
-      <h3><span class="step">01</span> Chọn video</h3>
-      <label for="video-url">Link video Facebook / Instagram</label>
-      <input id="video-url" type="url" placeholder="https://www.instagram.com/reels/…" autocomplete="off">
-      <button id="open-link" class="primary full" style="margin-top:10px">Mở link & lấy khung hình <span>↗</span></button>
-      <p class="hint">Trang được mở trong tab mới bằng phiên đăng nhập của bạn. Nếu được yêu cầu, đăng nhập và phát video rồi bấm “Lấy video từ tab đang mở”.</p>
-      <div class="divider"><span>hoặc dùng tệp của bạn</span></div>
-      <label class="drop" for="video-file"><span class="upload-icon">↑</span><strong>Chọn tệp video từ máy</strong><span>MP4, WebM, MOV tùy codec trình duyệt · tối đa 250 MB / 10 phút</span><input id="video-file" type="file" accept="video/*"></label>
-      <div class="divider"><span>hoặc</span></div>
-      <button id="capture-tab" class="secondary full">Lấy video từ tab đang mở</button>
-      <p class="hint">Hỗ trợ video Facebook / Instagram đang hiển thị. Nếu trang chặn đọc ảnh, bấm lại biểu tượng extension trên tab video để cấp quyền chụp vùng video rồi thử lại. Không hỗ trợ DRM hoặc video trong iframe.</p>
-      <video id="preview" controls playsinline hidden></video>
-      <p id="video-info" class="hint">Chưa chọn video.</p>
-      <div class="row"><label for="frame-count">Số khung hình</label><select id="frame-count"><option value="6">6 · Nhanh</option><option value="12" selected>12 · Cân bằng</option><option value="24">24 · Chi tiết</option></select></div>
-      <button id="extract" class="secondary full" disabled>Lấy khung hình từ tệp</button>
-      <progress id="progress" max="100" value="0" hidden aria-label="Tiến độ lấy khung hình"></progress>
-      <div id="frames" class="frames" aria-label="Khung hình đã chọn"></div>
-      <button id="export-frames" class="text-button" hidden>Tải bảng khung hình (.jpg)</button>
-    </section>
-    <section class="card">
-      <h3><span class="step">02</span> Thiết lập phân tích</h3>
-      <label for="goal">Ý tưởng muốn tái tạo <span class="muted">· tùy chọn</span></label>
-      <textarea id="goal" rows="2" maxlength="1000" placeholder="Ví dụ: Giữ phong cách điện ảnh, đổi chủ thể thành sản phẩm nước hoa…"></textarea>
-      <div class="row"><label for="language">Ngôn ngữ phân tích</label><select id="language"><option value="vi">Tiếng Việt</option><option value="en">English</option></select></div>
-      <div class="row"><label for="provider">Công cụ phân tích</label><select id="provider"><option value="web" selected>ChatGPT web · Không cần key</option><option value="openai">OpenAI API · Tự động</option><option value="gemini">Gemini API · Tự động</option></select></div>
-      <div id="web-mode">
-        <p class="notice">Dùng tài khoản ChatGPT bạn đang có. Extension chuẩn bị ảnh và hướng dẫn; bạn tự đính kèm ảnh và gửi trong ChatGPT. Không cần API key.</p>
-        <ol class="hint"><li>Lấy khung hình từ video, rồi tải bảng ảnh.</li><li>Sao chép hướng dẫn bên dưới.</li><li>Mở ChatGPT, đính kèm <strong>video-frames.jpg</strong>, dán hướng dẫn và gửi.</li></ol>
-        <button id="web-frames" class="primary full" disabled>1. Tải bảng ảnh cho ChatGPT ↓</button>
-        <label for="chatgpt-prompt" style="margin-top:14px">Hướng dẫn phân tích</label>
-        <textarea id="chatgpt-prompt" rows="5" readonly placeholder="Chọn video và lấy khung hình để chuẩn bị hướng dẫn…"></textarea>
-        <div class="toolbar"><button id="web-copy" class="secondary" disabled>2. Sao chép hướng dẫn</button><button id="web-prompt-file" class="secondary" disabled>Tải hướng dẫn .txt</button></div>
-        <a id="open-chatgpt" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">3. Mở ChatGPT ↗</a>
-        <p class="hint">Kết quả hiển thị trong ChatGPT. Khả năng tải ảnh và hạn mức phụ thuộc tài khoản ChatGPT của bạn. Extension không tự gửi, đọc hội thoại hoặc dùng phiên đăng nhập để gọi API.</p>
-      </div>
-      <div id="api-mode" hidden>
-        <details open><summary id="api-summary">Kết nối OpenAI API</summary>
-          <label id="api-key-label" for="api-key">OpenAI API key</label><input id="api-key" type="password" autocomplete="off" placeholder="Nhập key của nhà cung cấp đã chọn">
-          <p class="hint">Key chỉ giữ trong bộ nhớ khi bảng đang mở. Tạo key tại <a id="key-link" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI Platform</a>.</p>
-          <p class="notice">OpenAI API tính phí riêng. Gói ChatGPT Free / Plus / Pro không tự cấp hạn mức API.</p>
-          <label for="model">Model hỗ trợ hình ảnh</label><input id="model" value="gpt-4.1-mini" list="model-options" spellcheck="false">
-          <datalist id="model-options"></datalist>
-          <button id="load-models" class="secondary full" style="margin-top:10px">Tải danh sách model</button>
-          <p class="hint">Danh sách lấy trực tiếp bằng key của bạn. Chọn model hỗ trợ ảnh và JSON; việc có tên trong danh sách chưa bảo đảm model hỗ trợ tác vụ này.</p>
-        </details>
-        <label class="consent"><input id="consent" type="checkbox"><span id="consent-text">Tôi đồng ý gửi khung hình và ghi chú đến nhà cung cấp đã chọn. API có thể tính phí theo tài khoản của tôi.</span></label>
-        <button id="analyze" class="primary full" disabled>Phân tích & tạo prompt <span>↗</span></button>
-      </div>
-      <button id="cancel" class="secondary full" hidden>Hủy yêu cầu AI</button>
-    </section>
-    <p id="status" role="status" aria-live="polite">Sẵn sàng. Chọn một video để bắt đầu.</p>
-    <section id="results" class="card" hidden>
-      <h3><span class="step">03</span> Phân tích & prompt</h3>
-      <p class="notice">Prompt được suy luận từ ảnh mẫu, không phải prompt gốc. Mốc cảnh và chuyển động là ước lượng. Không phân tích âm thanh.</p>
-      <div class="toolbar"><button id="copy-all" class="secondary">Sao chép tất cả</button><button id="export-md" class="secondary">Tải .md</button><button id="export-json" class="secondary">Tải .json</button></div>
-      <div id="result-body"></div>
-    </section>
-  </main>
-  <footer>Không có máy chủ riêng. Bạn chọn gửi ảnh qua ChatGPT hoặc API của nhà cung cấp.</footer>
-</body>
-</html>
+<header class="app-header"><div class="brand-mark" aria-hidden="true"><b>MD</b><small>AI</small></div><div class="brand"><h1>MD PHÂN TÍCH AI</h1><p>Phân tích chuyên sâu Video AI</p></div><div class="header-actions"><button id="theme" title="Đổi giao diện sáng/tối">Sáng/Tối</button><button id="history-open">Lịch sử</button><button id="settings-open">Cài đặt</button></div></header>
+<main>
+<section class="workspace card"><div class="section-title"><h2>NGUỒN VIDEO</h2><span id="source-badge" class="pill">Video đang mở</span></div><div class="source-tabs" role="tablist" aria-label="Nguồn video"><button id="source-tab" role="tab" aria-selected="true">1. Video đang mở</button><button id="source-link" role="tab" aria-selected="false">2. Dán link video</button><button id="source-file" role="tab" aria-selected="false">3. Tệp</button></div>
+<div id="tab-source"><label for="video-select">Trang có nhiều video — chọn đúng video cần phân tích:</label><select id="video-select"><option value="">Chưa phát hiện video</option></select></div>
+<div id="link-source" hidden><label for="video-url">Link Facebook / Instagram</label><input id="video-url" type="url" placeholder="https://www.instagram.com/reels/…"><button id="open-link" class="cyan full">Mở link & tìm video</button><p class="hint">Đăng nhập trên trang chính thức và phát video nếu được yêu cầu. Sau đó bấm Quét lại.</p></div>
+<div id="file-source" hidden><label for="video-file">Chọn tệp video · tối đa 250 MB / 10 phút</label><input id="video-file" type="file" accept="video/*"><video id="preview" controls playsinline hidden></video></div></section>
+<section class="card engine-card"><div class="section-title"><h2>CHỌN CHẾ ĐỘ PHÂN TÍCH</h2><span id="engine-badge" class="pill active-pill">LOCAL — MIỄN PHÍ</span></div><div class="engines" role="radiogroup" aria-label="Chế độ phân tích">
+<button class="engine selected" data-engine="local" role="radio" aria-checked="true"><strong>1. LOCAL — MIỄN PHÍ</strong><span>Đo màu, ánh sáng & ước lượng cảnh ngay trên máy</span></button>
+<button class="engine" data-engine="web" role="radio" aria-checked="false"><strong>2. GEMINI / CHATGPT WEB — KHÔNG CẦN API</strong><span>Tạo Storyboard + hướng dẫn & nhập kết quả JSON</span></button>
+<button class="engine" data-engine="cloud" role="radio" aria-checked="false"><strong>3. CLOUD AI — TÙY CHỌN</strong><span>Phân tích nội dung bằng OpenAI / Gemini API</span></button></div>
+<div id="web-mode" class="engine-options" hidden><p class="hint">Sau khi chuẩn bị khung hình: tải bảng ảnh, sao chép hướng dẫn, tự đính kèm ảnh và gửi trong ChatGPT hoặc Gemini. Kết quả không tự quay lại extension.</p><div class="button-grid"><button id="web-frames" class="cyan" disabled>Tải Storyboard .jpg</button><button id="web-copy" disabled>Copy hướng dẫn</button></div><textarea id="chatgpt-prompt" rows="4" readonly placeholder="Lấy khung hình để tạo hướng dẫn…"></textarea><div class="links"><a href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Mở ChatGPT ↗</a><a href="https://gemini.google.com/app" target="_blank" rel="noopener noreferrer">Mở Gemini ↗</a><button id="web-prompt-file" class="small" disabled>Tải hướng dẫn</button></div><label for="import-json">Dán JSON do AI trả về</label><textarea id="import-json" rows="4" placeholder='{"summary":"…", "scenes":[…], …}'></textarea><button id="import-result" class="cyan full" disabled>Nhập & kiểm tra kết quả JSON</button></div>
+<div id="api-mode" class="engine-options" hidden><label for="provider">Nhà cung cấp</label><select id="provider"><option value="openai">OpenAI API</option><option value="gemini">Gemini API</option></select><label id="api-key-label" for="api-key">OpenAI API key</label><input id="api-key" type="password" autocomplete="off" placeholder="Chỉ giữ key trong phiên này"><label for="model">Model hỗ trợ hình ảnh + JSON</label><input id="model" value="gpt-4.1-mini" list="model-options"><datalist id="model-options"></datalist><button id="load-models" class="full">Tải danh sách model</button><p class="hint">API tính phí riêng với gói ChatGPT. Tạo key tại <a id="key-link" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI Platform</a>. Tối đa 24 ảnh được chọn đều cho mỗi yêu cầu API.</p><label class="checkbox"><input id="consent" type="checkbox"><span id="consent-text">Tôi đồng ý gửi ảnh và ghi chú đến OpenAI. API có thể tính phí.</span></label></div>
+<div class="engine-state"><span>Trạng thái Engine/Model:</span><strong id="engine-status">Sẵn sàng phân tích pixel cục bộ. Không cần tải model.</strong><span>Hiệu năng & Bộ nhớ:</span><strong id="performance">Chưa có lần phân tích nào.</strong><button id="release-memory" class="small">Giải phóng ảnh trong RAM</button><p class="hint compact">Local không có mô hình Vision: không tự nhận diện chủ thể, hành động hoặc công cụ tạo video.</p></div></section>
+<section class="card control-card"><div class="detection"><span id="detect-light" class="dot"></span><strong id="detection-status">Chưa phát hiện video</strong><button id="capture-tab" class="small">Quét lại</button></div><div class="stats"><div><span>THỜI LƯỢNG</span><strong id="duration">—</strong></div><div><span>KÍCH THƯỚC</span><strong id="dimensions">—</strong></div><div><span>TRẠNG THÁI</span><strong id="state" class="mono">IDLE</strong></div><div><label for="quality">ĐỘ CHI TIẾT</label><select id="quality"><option value="fast">Nhanh · 12 ảnh</option><option value="standard" selected>Tiêu chuẩn</option><option value="deep">Chi tiết · tối đa 60</option></select></div></div><div class="url-row"><span>URL / tệp:</span><code id="video-info">Chọn video để bắt đầu</code></div><div class="progress-card"><div><strong id="progress-label">Sẵn sàng</strong><span id="progress-percent">0%</span></div><progress id="progress" max="100" value="0"></progress><small id="run-id">Chưa tạo báo cáo</small></div><label for="goal">Ghi chú tái tạo <span class="hint">· không bắt buộc</span></label><textarea id="goal" rows="2" maxlength="1000" placeholder="Ví dụ: Tái tạo phong cách cho video quảng cáo nước hoa…"></textarea><button id="analyze" class="analyze full">PHÂN TÍCH VIDEO</button><button id="cancel" class="full" hidden>Hủy yêu cầu AI</button><div class="actions"><button id="reanalyze">Phân tích lại</button><button id="copy-result" disabled>Copy kết quả</button><button id="export-open" disabled>Export</button><button id="clear-cache">Xóa cache</button></div><p id="status" role="status" aria-live="polite">Chọn video đang mở, dán link hoặc dùng tệp video của bạn.</p><details id="frame-details"><summary id="frame-count-label">Khung hình mẫu · 0</summary><div id="frames" class="frames"></div><button id="export-frames" class="small" disabled>Tải bảng ảnh JPEG</button></details></section>
+<nav id="report-tabs" class="card report-tabs" role="tablist" aria-label="Báo cáo phân tích"></nav><section id="results" class="card report" aria-live="polite"><div id="result-body"><div class="empty-icon">▧</div><h2>Chưa có báo cáo phân tích</h2><p class="hint">Chọn nguồn video và bấm PHÂN TÍCH VIDEO. Báo cáo sẽ xuất hiện tại đây.</p></div></section><footer>MD PHÂN TÍCH AI · v2.0<br>Prompt suy luận hoặc mẫu gợi ý, không phải prompt gốc. Không phân tích âm thanh.</footer></main>
+<dialog id="settings-dialog"><div class="dialog-heading"><h2>Cài đặt hệ thống (Settings)</h2><button data-close="settings-dialog">Đóng</button></div><form id="settings-form"><label for="settings-language">Ngôn ngữ phân tích / prompt</label><select id="settings-language"><option value="both">Song ngữ (phân tích Việt + prompt Anh)</option><option value="vi">Phân tích tiếng Việt + prompt Anh</option><option value="en">English</option></select><label for="settings-frames">Số Keyframe trích xuất tối đa (12–60)</label><input id="settings-frames" type="number" min="12" max="60" step="1" value="36" required><label class="checkbox"><input id="settings-auto" type="checkbox" checked>Tự động nhận diện video khi mở bảng trên Facebook / Instagram</label><label class="checkbox"><input id="settings-cache" type="checkbox" checked>Tự động lưu cache kết quả phân tích</label><p class="hint">Lưu tối đa 20 báo cáo lịch sử và 8 bản cache trên máy. Không lưu API key hoặc ảnh video. Tắt cache sẽ xóa cache hiện có.</p><button class="cyan" type="submit">Lưu cài đặt</button><p id="settings-error" class="error" role="alert"></p></form></dialog>
+<dialog id="history-dialog"><div class="dialog-heading"><h2>Lịch sử phân tích gần đây</h2><button data-close="history-dialog">Đóng</button></div><div id="history-list"></div><button id="clear-history" class="full">Xóa lịch sử</button><p class="hint">Bản lưu chứa báo cáo và tiêu đề/URL video, không chứa khung hình hoặc key. Chỉ lưu trên trình duyệt này.</p></dialog>
+</body></html>

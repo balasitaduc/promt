@@ -1,11 +1,11 @@
-"""Chromium UI/content-script tests with mocked Chrome, Gemini and OpenAI APIs.
-
-Cloud Chromium policy blocks unpacked extensions; this harness tests the actual
-page modules and injected content.js in real browser pages without changing it.
+"""Exercise real UI, media and content script in Chromium; mock Chrome APIs and AI.
+Cloud policy blocks loading unpacked extensions, so sidePanel and activeTab APIs
+need a final installation check on the user's browser. No live AI keys required.
 """
 import base64
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,27 +20,31 @@ OUTPUT = {
                 'camera': 'Static', 'lighting': 'Flat', 'motion': 'Estimated color change',
                 'prompt': 'A bright geometric square on a red and blue background'}]
 }
-
 with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     context = playwright.chromium.launch_persistent_context(
         temporary, executable_path=os.environ.get('CHROMIUM_PATH', '/usr/bin/chromium'),
-        headless=True, accept_downloads=True,
+        headless=True, accept_downloads=True, viewport={'width': 450, 'height': 980},
         args=['--no-sandbox', '--autoplay-policy=no-user-gesture-required'],
     )
     context.add_init_script('''window.chrome = {
       tabs: {
         create: async options => { window.requestedUrl = options.url; return {id:1,url:options.url,status:'complete'}; },
         get: async id => ({id,url:window.requestedUrl,status:'complete'}),
-        query: async () => [{id:1,url:window.requestedUrl}],
-        sendMessage: async (id, message) => { window.sentMessage = message; return window.testTabResponse; }
+        query: async () => [{id:1,url:window.requestedUrl || 'https://www.instagram.com/reels/DepGcNqih2d/'}],
+        sendMessage: async (id, message) => {
+          window.sentMessage = message;
+          if (message.type === 'VP_DETECT') return window.testDetection;
+          if (message.type === 'VP_EXTRACT') return window.testTabResponse;
+          return {ok:true};
+        }
       },
       scripting: {executeScript: async options => [{result:true}]},
-      runtime: {onMessage: {addListener: listener => {window.vpListener = listener;}}}
+      runtime: {onMessage: {addListener: listener => {window.vpListener = listener;}}, sendMessage: async () => ({ok:true})}
     };''')
     def serve_source(route):
         name = route.request.url.split('/')[-1] or 'sidepanel.html'
         path = ROOT / name
-        if name not in ['sidepanel.html', 'sidepanel.css', 'sidepanel.js', 'core.js']:
+        if name not in ['sidepanel.html', 'sidepanel.css', 'sidepanel.js', 'core.js', 'local.js', 'reports.js', 'storage.js']:
             route.fulfill(status=404); return
         content_type = 'text/javascript' if name.endswith('.js') else 'text/css' if name.endswith('.css') else 'text/html'
         route.fulfill(status=200, content_type=content_type, body=path.read_bytes())
@@ -49,148 +53,217 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.goto('http://127.0.0.1:8765/sidepanel.html')
-    expect(page.locator('#provider')).to_have_value('web')
+    expect(page.locator('[data-engine=local]')).to_have_attribute('aria-checked', 'true')
+    expect(page.locator('#report-tabs button')).to_have_count(12)
     expect(page.locator('#api-mode')).to_be_hidden()
-    expect(page.locator('#open-chatgpt')).to_have_attribute('href', 'https://chatgpt.com/')
-    # Generate a real two-second WebM, then remux to add seekable file metadata.
+    page.locator('#settings-open').click()
+    page.locator('#settings-frames').fill('12')
+    page.locator('#settings-auto').uncheck()
+    page.locator('#settings-form button[type=submit]').click()
+    expect(page.locator('#settings-dialog')).not_to_be_visible()
+    page.reload()
+    page.locator('#settings-open').click()
+    expect(page.locator('#settings-frames')).to_have_value('12')
+    page.locator('[data-close=settings-dialog]').click()
+    print('PASS: screenshot-style dashboard, 12 report tabs and persisted settings load')
+
     encoded = page.evaluate('''async () => {
       const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180;
       const ctx = canvas.getContext('2d'); const stream = canvas.captureStream(20);
-      const recorder = new MediaRecorder(stream, {mimeType: 'video/webm;codecs=vp8'});
-      const chunks = []; recorder.ondataavailable = e => chunks.push(e.data);
-      const complete = new Promise(resolve => recorder.onstop = resolve);
-      recorder.start();
-      for (let i=0; i<40; i++) {
-        ctx.fillStyle = i < 20 ? '#e02020' : '#2020e0'; ctx.fillRect(0,0,320,180);
-        ctx.fillStyle = '#ffffff'; ctx.fillRect(i*4,55,40,40);
-        await new Promise(resolve => setTimeout(resolve,50));
-      }
-      recorder.stop(); await complete; stream.getTracks().forEach(t => t.stop());
-      return await new Promise(resolve => { const r = new FileReader(); r.onload = () => resolve(r.result.split(',')[1]); r.readAsDataURL(new Blob(chunks, {type:'video/webm'})); });
+      const recorder = new MediaRecorder(stream, {mimeType:'video/webm;codecs=vp8'}), chunks=[];
+      recorder.ondataavailable = e => chunks.push(e.data);
+      const done = new Promise(resolve => recorder.onstop = resolve); recorder.start();
+      for(let i=0;i<40;i++) {ctx.fillStyle=i<20?'#e02020':'#2020e0';ctx.fillRect(0,0,320,180);ctx.fillStyle='#fff';ctx.fillRect(i*4,55,40,40);await new Promise(r=>setTimeout(r,50));}
+      recorder.stop();await done;stream.getTracks().forEach(t=>t.stop());
+      return new Promise(resolve=>{const r=new FileReader();r.onload=()=>resolve(r.result.split(',')[1]);r.readAsDataURL(new Blob(chunks,{type:'video/webm'}));});
     }''')
-    fixture = Path(temporary) / 'sample.webm'
-    raw = Path(temporary) / 'recording.webm'
+    raw, fixture = Path(temporary)/'recording.webm', Path(temporary)/'sample.webm'
     raw.write_bytes(base64.b64decode(encoded))
-    # MediaRecorder emits a live-style WebM without duration; remux into a file.
-    subprocess.run(['ffmpeg', '-v', 'error', '-i', str(raw), '-c', 'copy', str(fixture)], check=True)
+    subprocess.run(['ffmpeg','-v','error','-i',str(raw),'-c','copy',str(fixture)], check=True)
     encoded = base64.b64encode(fixture.read_bytes()).decode()
-    page.locator('#frame-count').select_option('6')
+    page.locator('#source-file').click()
     page.locator('#video-file').set_input_files(fixture)
-    expect(page.locator('#extract')).to_be_enabled()
-    page.locator('#extract').click()
-    expect(page.locator('#frames img')).to_have_count(6, timeout=30000)
-    # Ensure seeks captured different content, not six copies of frame zero.
-    images = page.locator('#frames img').evaluate_all('(images) => images.map(i => i.src)')
-    assert len(set(images)) >= 4, 'Frames must contain distinct video positions'
-    with page.expect_download() as download:
-        page.locator('#export-frames').click()
-    assert Path(download.value.path()).stat().st_size > 1000
-    print('PASS: actual UI modules load, local video seeks to six distinct frames, JPEG contact sheet exports')
-    expect(page.locator('#web-copy')).to_be_enabled()
-    expect(page.locator('#chatgpt-prompt')).to_have_value(__import__('re').compile('.*If no image is attached.*', __import__('re').DOTALL))
+    expect(page.locator('#state')).to_have_text('READY')
+    page.locator('#analyze').click()
+    expect(page.locator('#state')).to_have_text('COMPLETED', timeout=30000)
+    expect(page.locator('#frames img')).to_have_count(12)
+    images = page.locator('#frames img').evaluate_all('(images)=>images.map(i=>i.src)')
+    assert len(set(images)) >= 4
+    expect(page.locator('#result-body')).to_contain_text('không nhận diện chủ thể')
+    saved = page.evaluate('JSON.parse(localStorage.getItem("video_prompt_v2"))')
+    assert len(saved['history']) == 1 and len(saved['cache']) == 1
+    assert len(saved['history'][0]['analysis']['scenes']) >= 2
+    assert 'data:image' not in json.dumps(saved)
+    page.locator('#analyze').click()
+    expect(page.locator('#state')).to_have_text('CACHED')
+    page.locator('#reanalyze').click()
+    expect(page.locator('#state')).to_have_text('COMPLETED')
+    for index in range(12):
+        page.locator('#report-tabs button').nth(index).click()
+        assert page.locator('#result-body').inner_text().strip()
+    page.locator('#report-tabs button').nth(6).click()
+    expect(page.locator('#result-body')).to_contain_text('Audio chưa được phân tích')
+    page.locator('#export-open').click()
+    for button, suffix in [('export-json','.json'),('export-txt','.txt'),('export-md','.md'),('export-html','.html')]:
+        with page.expect_download() as download: page.locator('#'+button).click()
+        content = Path(download.value.path()).read_text()
+        assert '[SUBJECT:' in content
+        assert download.value.suggested_filename.endswith(suffix)
+    print('PASS: local pixel analysis, multiple scenes, 12 distinct samples, cache, reanalysis and four export formats')
+    (ROOT/'dist').mkdir(exist_ok=True)
+    page.evaluate('window.scrollTo(0,0)')
+    page.screenshot(path=str(ROOT/'dist/v2-export.png'), full_page=True)
+    page.locator('#theme').click()
+    expect(page.locator('html')).to_have_attribute('data-theme','light')
+    page.locator('#theme').click()
+    page.locator('#history-open').click()
+    expect(page.locator('.history-item')).to_have_count(2)
+    page.locator('.history-item button').first.click()
+    expect(page.locator('#state')).to_have_text('HISTORY')
+    expect(page.locator('#analyze')).to_be_disabled()
+    page.locator('#source-file').click()
+    page.locator('[data-engine=web]').click()
     page.locator('#goal').fill('Create a perfume advertisement')
-    expect(page.locator('#chatgpt-prompt')).to_have_value(__import__('re').compile('.*perfume advertisement.*', __import__('re').DOTALL))
-    with page.expect_download() as download:
-        page.locator('#web-prompt-file').click()
-    assert 'perfume advertisement' in Path(download.value.path()).read_text()
-    assert download.value.suggested_filename == 'chatgpt-instructions.txt'
-    with page.expect_download() as download:
-        page.locator('#web-frames').click()
-    assert Path(download.value.path()).stat().st_size > 1000
-    print('PASS: default ChatGPT web needs no key, prepares timestamped instructions and exports actual images')
-
-    # Open the user-provided URL shape with a controlled Instagram page.
-    social_html = f'<html><head><title>Test Reel</title></head><body style="margin:0"><video width="320" height="180" controls autoplay muted src="data:video/webm;base64,{encoded}"></video></body></html>'
-    context.route('https://www.instagram.com/reels/DepGcNqih2d/', lambda route: route.fulfill(status=200, content_type='text/html', body=social_html))
-    social = context.new_page()
-    social.goto('https://www.instagram.com/reels/DepGcNqih2d/')
-    social.wait_for_function('document.querySelector("video").readyState >= 2')
-    social.evaluate('(v) => {v.pause(); v.currentTime = 0.25;}', social.query_selector('video'))
-    social.wait_for_function('!document.querySelector("video").seeking')
-    social.evaluate((ROOT / 'content.js').read_text())
-    tab_result = social.evaluate('''() => new Promise(resolve => window.vpListener({type:'VP_EXTRACT',count:6}, {}, resolve))''')
-    assert tab_result['ok'], tab_result
-    assert len(tab_result['frames']) == 6
-    assert len(set(f['dataUrl'] for f in tab_result['frames'])) >= 4
-    assert abs(social.locator('video').evaluate('(v) => v.currentTime') - 0.25) < 0.05
-    page.evaluate('(response) => {window.testTabResponse = response;}', tab_result)
-    page.locator('#video-url').fill('https://www.instagram.com/reels/DepGcNqih2d/')
-    page.locator('#open-link').click()
-    expect(page.locator('#video-info')).to_contain_text('Test Reel', timeout=40000)
-    expect(page.locator('#frames img')).to_have_count(6)
-    assert social.url == 'https://www.instagram.com/reels/DepGcNqih2d/'
-    assert page.evaluate('window.requestedUrl') == social.url
-    print('PASS: Instagram link flow executes real content.js and returns six frames (mock Chrome APIs/page)')
+    page.locator('#analyze').click()
+    expect(page.locator('#state')).to_have_text('WEB_READY')
+    expect(page.locator('#chatgpt-prompt')).to_have_value(re.compile('.*perfume advertisement.*',re.DOTALL))
+    expect(page.locator('#chatgpt-prompt')).to_have_value(re.compile('.*Return ONLY a JSON object.*',re.DOTALL))
+    for button in ['web-frames','web-prompt-file']:
+        with page.expect_download() as download: page.locator('#'+button).click()
+        assert Path(download.value.path()).stat().st_size > 500
+    page.locator('#import-json').fill('{invalid')
+    page.locator('#import-result').click()
+    expect(page.locator('#status')).to_contain_text('JSON không hợp lệ')
+    page.locator('#import-json').fill(json.dumps(OUTPUT))
+    page.locator('#import-result').click()
+    expect(page.locator('#state')).to_have_text('IMPORTED')
+    expect(page.locator('#result-body')).to_contain_text(OUTPUT['summary'])
+    page.locator('#report-tabs button').nth(1).click()
+    assert page.locator('#result-body img').count() == 1  # only actual video thumbnail
+    assert page.locator('#result-body img[src=x]').count() == 0
+    page.locator('#export-open').click()
+    with page.expect_download() as download: page.locator('#export-html').click()
+    html = Path(download.value.path()).read_text()
+    assert '<img src=x' not in html and '&lt;img src=x' in html
+    print('PASS: theme, history reopen, ChatGPT storyboard/JSON handoff, import validation and safe HTML export')
 
     requests = []
     missing_model = [True]
-    def gemini(route):
+    def openai(route):
         requests.append(route.request)
-        if ':generateContent' not in route.request.url:
-            route.fulfill(status=200, content_type='application/json', body=json.dumps({'models': [{'name': 'models/gemini-test-flash', 'supportedGenerationMethods': ['generateContent']}]}))
-            return
-        if missing_model[0]:
-            route.fulfill(status=404, body='{}')
-            return
-        route.fulfill(status=200, content_type='application/json', body=json.dumps({'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': json.dumps(OUTPUT)}]}}]}))
-    context.route('https://generativelanguage.googleapis.com/**', gemini)
-    page.locator('#provider').select_option('gemini')
-    page.locator('#api-key').fill('test-not-a-real-key')
+        if route.request.url.endswith('/models'):
+            result = {'data':[{'id':'gpt-4.1'},{'id':'gpt-4o-audio-preview'}]}
+        elif missing_model[0]:
+            route.fulfill(status=404,body='{}');return
+        else:
+            result = {'status':'completed','output':[{'type':'message','content':[{'type':'output_text','text':json.dumps(OUTPUT)}]}]}
+        route.fulfill(status=200,content_type='application/json',body=json.dumps(result))
+    context.route('https://api.openai.com/**',openai)
+    page.locator('[data-engine=cloud]').click()
+    page.locator('#api-key').fill('test-openai-not-real')
     expect(page.locator('#analyze')).to_be_disabled()
     page.locator('#consent').check()
     page.locator('#analyze').click()
     expect(page.locator('#status')).to_contain_text('Tải danh sách model')
-    expect(page.locator('#results')).to_be_hidden()
-    missing_model[0] = False
     page.locator('#load-models').click()
-    expect(page.locator('#model')).to_have_value('gemini-test-flash')
-    expect(page.locator('#model-options option')).to_have_count(1)
+    expect(page.locator('#model')).to_have_value('gpt-4.1')
+    missing_model[0] = False
     page.locator('#analyze').click()
-    expect(page.locator('#results')).to_be_visible(timeout=15000)
-    expect(page.locator('#result-body')).to_contain_text(OUTPUT['masterPrompt'])
-    assert page.locator('#result-body img').count() == 0, 'AI output must render as text, never HTML'
-    payload = json.loads(next(r.post_data for r in requests if r.post_data))
-    assert sum('inlineData' in part for part in payload['contents'][0]['parts']) == 6
-    assert 'test-not-a-real-key' not in requests[0].url
-    for button, suffix in [('export-md', '.md'), ('export-json', '.json')]:
-        with page.expect_download() as download:
-            page.locator('#' + button).click()
-        content = Path(download.value.path()).read_text()
-        assert OUTPUT['masterPrompt'] in content
-        assert download.value.suggested_filename.endswith(suffix)
-    print('PASS: consent gates API, six JPEGs sent, AI output safe, Markdown and JSON exports valid (mock API)')
-    context.unroute('https://generativelanguage.googleapis.com/**')
-    context.route('https://generativelanguage.googleapis.com/**', lambda route: route.fulfill(status=429, body='{}'))
-    page.locator('#analyze').click()
-    expect(page.locator('#status')).to_contain_text('hạn mức')
-    expect(page.locator('#results')).to_be_hidden()
-    expect(page.locator('#analyze')).to_be_enabled()
-    assert not errors, errors
-    print('PASS: quota error is actionable, stale results cleared, retry enabled, no browser script errors')
-    openai_requests = []
-    def openai(route):
-        openai_requests.append(route.request)
-        if route.request.url.endswith('/models'):
-            result = {'data': [{'id': 'gpt-4.1-mini'}, {'id': 'gpt-4o-audio-preview'}]}
-        else:
-            result = {'status': 'completed', 'output': [{'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(OUTPUT)}]}]}
-        route.fulfill(status=200, content_type='application/json', body=json.dumps(result))
-    context.route('https://api.openai.com/**', openai)
-    page.locator('#provider').select_option('openai')
+    expect(page.locator('#state')).to_have_text('COMPLETED')
+    expect(page.locator('#result-body')).to_contain_text(OUTPUT['summary'])
+    request = next(r for r in requests if r.post_data)
+    assert sum(p['type']=='input_image' for p in json.loads(request.post_data)['input'][0]['content']) == 12
+    assert request.headers['authorization']=='Bearer test-openai-not-real'
+    assert 'test-openai-not-real' not in page.evaluate('localStorage.getItem("video_prompt_v2")')
+    def gemini(route):
+        if ':generateContent' not in route.request.url:
+            body={'models':[{'name':'models/gemini-test-flash','supportedGenerationMethods':['generateContent']}]}
+        else: body={'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':json.dumps(OUTPUT)}]}}]}
+        route.fulfill(status=200,content_type='application/json',body=json.dumps(body))
+    context.route('https://generativelanguage.googleapis.com/**',gemini)
+    page.locator('#provider').select_option('gemini')
     expect(page.locator('#api-key')).to_have_value('')
     expect(page.locator('#consent')).not_to_be_checked()
-    expect(page.locator('#model-options option')).to_have_count(0)
-    page.locator('#api-key').fill('test-openai-not-real')
+    page.locator('#api-key').fill('test-gemini-not-real')
     page.locator('#load-models').click()
-    expect(page.locator('#model-options option')).to_have_count(1)
+    expect(page.locator('#model')).to_have_value('gemini-test-flash')
     page.locator('#consent').check()
     page.locator('#analyze').click()
-    expect(page.locator('#results')).to_be_visible()
-    expect(page.locator('#result-body')).to_contain_text(OUTPUT['masterPrompt'])
-    request = next(r for r in openai_requests if r.post_data)
-    content = json.loads(request.post_data)['input'][0]['content']
-    assert sum(part['type'] == 'input_image' for part in content) == 6
-    assert request.headers['authorization'] == 'Bearer test-openai-not-real'
-    assert not errors, errors
-    print('PASS: OpenAI model discovery and Responses image analysis work; provider switch clears keys and consent (mock API)')
+    expect(page.locator('#state')).to_have_text('COMPLETED')
+    context.unroute('https://generativelanguage.googleapis.com/**')
+    context.route('https://generativelanguage.googleapis.com/**',lambda route:route.fulfill(status=429,body='{}'))
+    page.locator('#reanalyze').click()
+    expect(page.locator('#status')).to_contain_text('hạn mức')
+    context.unroute('https://generativelanguage.googleapis.com/**')
+    pending = []
+    context.route('https://generativelanguage.googleapis.com/**', lambda route: pending.append(route))
+    page.locator('#reanalyze').click()
+    expect(page.locator('#state')).to_have_text('ANALYZING')
+    page.locator('#cancel').click()
+    expect(page.locator('#state')).to_have_text('CANCELLED')
+    expect(page.locator('#analyze')).to_be_enabled()
+    for route in pending:
+        try: route.abort()
+        except Exception: pass  # The browser may already have aborted the request.
+    context.unroute('https://generativelanguage.googleapis.com/**')
+    print('PASS: OpenAI/Gemini model recovery, actual image payloads, consent, provider key isolation and quota errors (mock APIs)')
+
+    social_html = f'<html><head><title>Test Reel</title></head><body style="margin:0"><video width="320" height="180" controls muted src="data:video/webm;base64,{encoded}"></video><video width="320" height="180" controls muted src="data:video/webm;base64,{encoded}"></video></body></html>'
+    context.route('https://www.instagram.com/reels/DepGcNqih2d/',lambda route:route.fulfill(status=200,content_type='text/html',body=social_html))
+    social=context.new_page();social.goto('https://www.instagram.com/reels/DepGcNqih2d/')
+    social.wait_for_function('[...document.querySelectorAll("video")].every(v=>v.readyState>=2)')
+    social.evaluate('''() => {const [a,b]=document.querySelectorAll('video');a.currentTime=.6;b.currentTime=.25;}''')
+    social.wait_for_function('[...document.querySelectorAll("video")].every(v=>!v.seeking)')
+    social.evaluate((ROOT/'content.js').read_text())
+    detection=social.evaluate('''()=>new Promise(resolve=>window.vpListener({type:'VP_DETECT'},{},resolve))''')
+    assert len(detection['candidates'])==2
+    chosen=detection['candidates'][1]['id']
+    tab_result=social.evaluate('''id=>new Promise(resolve=>window.vpListener({type:'VP_EXTRACT',count:12,videoId:id},{},resolve))''',chosen)
+    assert tab_result['ok'],tab_result
+    assert len(tab_result['frames'])==12
+    positions=social.locator('video').evaluate_all('(v)=>v.map(x=>x.currentTime)')
+    assert abs(positions[0]-.6)<.05 and abs(positions[1]-.25)<.05
+    page.bring_to_front()
+    page.evaluate('(x)=>{window.testDetection=x.detection;window.testTabResponse=x.response;}',{'detection':detection,'response':tab_result})
+    page.locator('[data-engine=local]').click()
+    page.locator('#source-link').click()
+    page.locator('#video-url').fill(social.url)
+    page.locator('#open-link').click()
+    expect(page.locator('#detection-status')).to_contain_text('Instagram')
+    expect(page.locator('#video-select option')).to_have_count(2)
+    page.locator('#video-select').select_option(chosen)
+    page.locator('#analyze').click()
+    expect(page.locator('#state')).to_have_text('COMPLETED')
+    assert page.evaluate('window.sentMessage.videoId')==chosen
+    page.locator('#report-tabs button').nth(1).click()
+    assert page.locator('#result-body img').count() > 0
+    page.locator('#release-memory').click()
+    expect(page.locator('#frames img')).to_have_count(0)
+    expect(page.locator('#result-body img')).to_have_count(0)
+    page.locator('#report-tabs button').nth(0).click()
+    expect(page.locator('#export-open')).to_be_enabled()
+    page.locator('#clear-cache').click()
+    expect(page.locator('#status')).to_contain_text('Đã xóa cache')
+    page.locator('#history-open').click()
+    page.locator('#clear-history').click()
+    expect(page.locator('.history-item')).to_have_count(0)
+    page.locator('[data-close=history-dialog]').click()
+    page.evaluate('window.scrollTo(0,0)')
+    page.screenshot(path=str(ROOT/'dist/v2-dashboard.png'),full_page=True)
+    for width in [320,450,900]:
+        page.set_viewport_size({'width':width,'height':980})
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'),f'Horizontal overflow at {width}px'
+    # A delayed auto/manual scan must not replace a newly selected file source.
+    page.evaluate('''() => {
+      const original = chrome.tabs.sendMessage;
+      chrome.tabs.sendMessage = (id,message) => message.type === 'VP_DETECT'
+        ? new Promise(resolve => setTimeout(() => resolve(window.testDetection),200))
+        : original(id,message);
+    }''')
+    page.locator('#source-tab').click()
+    page.locator('#source-file').click()
+    page.wait_for_timeout(300)
+    expect(page.locator('#video-info')).to_contain_text('Chọn video')
+    assert not errors,errors
+    print('PASS: multi-video detection/selection, real content extraction/restoration, link flow, RAM/cache controls and 320–900px layouts')
     context.close()

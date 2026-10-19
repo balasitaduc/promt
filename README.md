@@ -1,78 +1,90 @@
-# Video → Prompt
+# MD Phân Tích AI — Video Prompt · v2.0.0
 
-Extension Chrome / Edge Manifest V3: dán link Facebook / Instagram, lấy khung hình video và dùng ChatGPT, OpenAI API hoặc Gemini API để suy luận prompt tổng và prompt theo cảnh. Giao diện tiếng Việt; prompt tạo video bằng tiếng Anh. Không có máy chủ riêng hoặc yêu cầu tài khoản của extension.
+Extension Chrome / Edge Manifest V3 phân tích khung hình video Facebook, Instagram hoặc tệp video trên máy. Giao diện tối xanh cyan theo bộ ảnh tham khảo: nguồn video, 3 chế độ, trạng thái/hiệu năng, báo cáo 12 tab, lịch sử, cài đặt và xuất tệp. Không có máy chủ riêng hoặc tài khoản extension.
 
-**[Tải extension ZIP để cài vào Chrome](https://github.com/balasitaduc/promt/raw/refs/heads/main/video-to-prompt.zip)**. Giải nén gói này, rồi chọn thư mục chứa `manifest.json` khi bấm **Load unpacked**. Nếu GitHub yêu cầu, đăng nhập bằng tài khoản có quyền xem repository.
+**[Tải extension ZIP](https://github.com/balasitaduc/promt/raw/refs/heads/main/video-to-prompt.zip)**
 
-## Cài đặt
+## Cài / cập nhật
 
-1. Giải nén `video-to-prompt.zip` (bản build cũng có tại `dist/video-to-prompt.zip`) hoặc dùng thư mục mã nguồn này.
-2. Mở `chrome://extensions` (Edge: `edge://extensions`), bật **Developer mode / Chế độ nhà phát triển**.
-3. Chọn **Load unpacked / Tải tiện ích đã giải nén**, chọn thư mục có `manifest.json`.
-4. Ghim extension, bấm biểu tượng **Video → Prompt** để mở bảng bên cạnh.
+1. Tải và giải nén `video-to-prompt.zip`.
+2. Vào `chrome://extensions` (Edge: `edge://extensions`), bật **Chế độ nhà phát triển**, chọn **Tải tiện ích đã giải nén / Load unpacked**, trỏ đến thư mục có `manifest.json`.
+3. Với bản cũ: giải nén đè vào thư mục đang cài rồi bấm **Tải lại / Reload**, đóng và mở lại bảng bên cạnh. Nếu dùng thư mục mới, gỡ bản cũ trước khi cài để tránh hai extension trùng nhau.
+4. Bản 2.0 bổ sung quyền `storage` để lưu cài đặt/lịch sử/cache. Chrome có thể yêu cầu chấp nhận quyền sau cập nhật. Ghim và bấm biểu tượng extension để mở bảng.
 
-### Cập nhật từ 1.0.0 lên 1.1.0
+## Nguồn video
 
-Tải ZIP mới, giải nén đè vào thư mục extension cũ rồi vào `chrome://extensions` bấm **Tải lại / Reload** trên thẻ Video → Prompt. Đóng và mở lại side panel để nhận giao diện mới. Nếu Chrome yêu cầu quyền `api.openai.com`, chỉ cấp khi muốn dùng OpenAI API.
+- **Video đang mở**: mở và phát video, bấm **Quét lại**, chọn đúng video trong danh sách nếu trang có nhiều video hiển thị. Chế độ tự nhận diện chỉ chạy khi bảng đang mở, không lấy ảnh hoặc gửi AI tự động.
+- **Dán link video**: hỗ trợ link HTTPS chính thức của Facebook / Instagram (ví dụ `https://www.instagram.com/reels/DepGcNqih2d/`). Bấm **Mở link & tìm video**; trang được mở trong tab mới. Đăng nhập trên trang chính thức nếu được yêu cầu, đóng hộp thoại, phát video rồi **Quét lại**. Link được mở để đọc video thật, không suy luận nội dung từ URL.
+- **Tệp**: tối đa 250 MB, 10 phút; khuyến nghị MP4 H.264 hoặc WebM VP8/VP9. MOV tùy codec Chrome hỗ trợ. Không hỗ trợ livestream.
 
-## Dùng ChatGPT không cần API key (mặc định)
+Bấm **PHÂN TÍCH VIDEO** để lấy mẫu (không cần thêm nút trích xuất riêng). Ảnh dài tối đa 960 pixel. Cài đặt giới hạn 12–60 ảnh: nhanh 12, tiêu chuẩn tối đa 36 trong giới hạn cài đặt, chi tiết dùng đúng giới hạn. Yêu cầu API chọn đều tối đa 24 ảnh, giữ cả ảnh đầu/cuối. Video trên tab được trả lại vị trí và trạng thái phát ban đầu khi lấy ảnh xong.
 
-1. Chọn video hoặc dán link và lấy khung hình như bên dưới.
-2. Giữ **ChatGPT web · Không cần key** trong ô công cụ phân tích.
-3. Bấm **1. Tải bảng ảnh cho ChatGPT**, rồi **2. Sao chép hướng dẫn** (hoặc tải hướng dẫn `.txt`).
-4. Bấm **3. Mở ChatGPT**, đăng nhập tài khoản ChatGPT của bạn nếu cần.
-5. Tự đính kèm `video-frames.jpg`, dán hướng dẫn rồi gửi. Kết quả nằm trong hội thoại ChatGPT; hạn mức tải ảnh tùy tài khoản.
+Nếu CORS chặn đọc canvas: giữ video đầy đủ trong vùng nhìn thấy, bấm lại biểu tượng extension trên tab video để cấp quyền `activeTab`, rồi thử lại. Extension có thể chụp tab và cắt vùng video. Kiểm tra ảnh mẫu vì lớp phủ/chữ trên trang có thể có trong ảnh. Video riêng tư, bị xóa, yêu cầu đăng nhập, giới hạn khu vực, DRM hoặc video trong iframe có thể không đọc được; dùng tệp video bạn có quyền sử dụng nếu cần.
 
-Extension không tự đính kèm ảnh hoặc tự gửi, không đọc hội thoại và không dùng cookie ChatGPT để gọi API. Chỉ dán link video vào ChatGPT có thể không đủ để đọc video; cần đính kèm ảnh đã chuẩn bị.
+## Ba chế độ
 
-## Phân tích tự động bằng OpenAI API hoặc Gemini API
+### 1. Local — miễn phí (mặc định)
 
-Sau khi lấy ảnh, chọn **OpenAI API · Tự động** hoặc **Gemini API · Tự động**, nhập key đúng nhà cung cấp, bấm **Tải danh sách model**, chọn model hỗ trợ hình ảnh và JSON. Đồng ý gửi ảnh rồi bấm phân tích. Kết quả hiện trong extension, có thể sao chép/xuất Markdown/JSON.
+Chạy trực tiếp trong trình duyệt, không API key, không tải model hoặc gửi ảnh lên mạng. Đo độ sáng, độ tương phản (độ lệch chuẩn luminance), độ bão hòa HSV, bảng màu lượng tử hóa và độ lệch màu nóng/lạnh. Phân đoạn cảnh dựa trên thay đổi histogram/màu giữa ảnh mẫu; mốc cắt đặt ở trung điểm giữa hai ảnh. Fade/đổi ánh sáng có thể tạo điểm cắt sai.
 
-OpenAI gọi Responses API bằng model GPT hỗ trợ ảnh (tên gợi ý `gpt-4.1-mini`). Gemini gọi `generateContent` (tên gợi ý `gemini-2.5-flash`). Đây là gợi ý, không bảo đảm model khả dụng: danh sách tải bằng API key mới phản ánh quyền truy cập của tài khoản, và mỗi model còn có giới hạn tính năng riêng.
+**Đây là phép đo pixel, không phải mô hình AI Vision được huấn luyện.** Không nhận diện người/vật/hành động/camera hoặc hiểu nội dung. Prompt là mẫu tiếng Anh dựa trên số đo, có các chỗ trống `[SUBJECT]`, `[ACTION]`, `[SETTING]`, `[CAMERA]` để bạn tự điền. Dùng Web AI hoặc Cloud API khi cần phân tích ngữ nghĩa. Không hiển thị phần trăm video do AI tạo.
 
-**ChatGPT Free / Plus / Pro và OpenAI API là hai dịch vụ thanh toán riêng.** Đăng nhập ChatGPT không tự cấp API key hoặc quota API. Dùng ChatGPT web nếu không muốn thiết lập API. Key chỉ giữ trong bộ nhớ bảng, không lưu vào mã hoặc ổ đĩa; đổi nhà cung cấp sẽ xóa key và yêu cầu đồng ý lại.
+### 2. Gemini / ChatGPT web — không cần API
 
-### Lỗi “Không tìm thấy model”
+1. Chọn chế độ Web, bấm **CHUẨN BỊ STORYBOARD + PROMPT**.
+2. Tải bảng ảnh JPEG và copy hướng dẫn (hoặc tải `.txt`).
+3. Mở ChatGPT / Gemini, tự đính kèm `video-frames.jpg`, dán hướng dẫn và gửi. Khả năng tải ảnh/hạn mức tùy tài khoản.
+4. AI được yêu cầu trả JSON gồm `summary`, `visualStyle`, `limitations`, `masterPrompt`, `negativePrompt`, `scenes` (`start`, `end`, `description`, `camera`, `lighting`, `motion`, `prompt`).
+5. Dán JSON vào extension, bấm **Nhập & kiểm tra kết quả JSON**. Extension kiểm tra trường và mốc thời gian trước khi tạo báo cáo. Kết quả được ghi là JSON do người dùng nhập, không phải kết nối AI đã được xác minh.
 
-Lỗi này do model đã chọn không được tìm thấy qua API cho key hiện tại (ví dụ tên cũ, quyền truy cập hoặc endpoint không hỗ trợ model đó). Bấm **Tải danh sách model**, chọn model khả dụng hỗ trợ ảnh/JSON rồi thử lại. Không sửa bằng cách nhập key Gemini vào OpenAI hoặc ngược lại. Có thể chuyển ngay sang ChatGPT web để dùng tài khoản ChatGPT mà không cần model API.
+Extension không tự gửi, đính kèm ảnh, đọc hội thoại hoặc dùng cookie ChatGPT để gọi API. Chỉ dán link vào AI web có thể không đủ để đọc video; cần đính kèm bảng ảnh. Mặc định hướng dẫn yêu cầu phân tích tiếng Việt, prompt tiếng Anh; có thể đổi trong Cài đặt.
 
-## Phân tích link Facebook / Instagram
+### 3. Cloud AI — tùy chọn
 
-1. Dán link, ví dụ `https://www.instagram.com/reels/DepGcNqih2d/`, chọn số ảnh mẫu rồi bấm **Mở link & lấy khung hình**.
-2. Trang được mở trong tab mới. Extension đợi tối đa 25 giây để tìm video có thể đọc. Nếu trang yêu cầu đăng nhập, hãy đăng nhập bằng giao diện chính thức, đóng hộp thoại và phát video; bấm **Lấy video từ tab đang mở** để thử lại. Extension không đọc mật khẩu hoặc cookie.
-3. Nếu CORS chặn canvas: bấm biểu tượng extension khi tab video đang được chọn để cấp `activeTab`, sau đó bấm **Lấy video từ tab đang mở**. Extension có thể chụp tab rồi cắt vùng video; giữ toàn bộ video trong vùng nhìn thấy, không che bằng hộp thoại và không đổi tab. Kiểm tra ảnh mẫu vì lớp phủ/phụ đề có thể xuất hiện trong ảnh. Nếu vẫn không đọc được, dùng tệp video bạn có quyền sử dụng.
-4. Chọn ChatGPT web để tự đính kèm ảnh, hoặc OpenAI/Gemini API để phân tích tự động như hướng dẫn ở trên.
-5. Với API: đánh dấu đồng ý gửi ảnh và bấm **Phân tích & tạo prompt**. Có thể hủy yêu cầu đang chạy. Hủy không bảo đảm nhà cung cấp dừng xử lý hoặc hoàn phí.
-6. Xem tổng quan, phong cách, prompt tổng, negative prompt và cảnh có mốc thời gian ước lượng trong ChatGPT hoặc trong extension tùy chế độ.
+Chọn OpenAI API hoặc Gemini API, nhập key của đúng nhà cung cấp, bấm **Tải danh sách model** và chọn model hỗ trợ ảnh + JSON. Đồng ý gửi ảnh, rồi phân tích. Key chỉ giữ trong bộ nhớ trang; đổi nhà cung cấp/chế độ hoặc đóng bảng sẽ xóa key và yêu cầu đồng ý lại.
 
-## Tệp video
+OpenAI dùng Responses API, tên gợi ý `gpt-4.1-mini`. Gemini dùng `generateContent`, tên gợi ý `gemini-2.5-flash`. Tên gợi ý có thể không khả dụng; danh sách qua API phản ánh quyền truy cập của key, còn tính năng ảnh/JSON phụ thuộc model. **Lỗi không tìm thấy model (404)**: tải danh sách và chọn model khác, hoặc chuyển Web AI. **Lỗi 429**: kiểm tra quota/thanh toán rồi thử lại. Không đổi key nhà cung cấp qua lại để sửa lỗi.
 
-Chọn MP4/WebM/MOV có codec Chrome hỗ trợ (khuyến nghị MP4 H.264 hoặc WebM VP8/VP9). Tối đa 250 MB, 10 phút. Bấm **Lấy khung hình từ tệp**, xem 6/12/24 ảnh mẫu. Khung hình dài tối đa 960 pixel. Có thể tải bảng ảnh JPEG ngay cả khi chưa có API key. Thay đổi số ảnh rồi lấy lại nếu cần mật độ khác.
+**Gói ChatGPT Free / Plus / Pro không bao gồm phí OpenAI API.** Hai dịch vụ có key/thanh toán riêng. Có thể hủy trong khi chạy; hủy không bảo đảm nhà cung cấp ngừng xử lý hoặc hoàn phí. Giới hạn chờ API 120 giây.
 
-## Giới hạn
+## Báo cáo 12 tab
 
-- Đây là **prompt suy luận**, không phải khôi phục prompt gốc. Không xác định chắc chắn công cụ AI đã tạo video.
-- Phân tích ảnh mẫu, không nghe âm thanh; chuyển động và ranh giới cảnh là suy đoán. Video cắt cảnh nhanh có thể bị bỏ sót. Thời lượng không lấy từ link; cần video được tải trong trình duyệt.
-- Link riêng tư, bị xóa, yêu cầu đăng nhập, giới hạn khu vực, livestream, iframe và DRM có thể không hoạt động. Không tải lén hoặc vượt cơ chế bảo vệ nền tảng.
-- Chỉ video đang hiển thị ở frame chính của trang được chọn; ưu tiên video đang phát rồi đến video lớn nhất. Hãy dừng video khác và cuộn đến đúng Reel.
-- Có quyền đọc trang Facebook/Instagram để mở link và lấy ảnh. Trang khác chỉ truy cập sau khi bạn bấm biểu tượng extension, nhờ `activeTab`.
-- API có thể tính phí hoặc hết quota. Không nhúng key trong mã; key chỉ giữ trong bộ nhớ trang và bị xóa khi đóng bảng. Không có lịch sử lưu tự động.
-- Đã kiểm thử bằng video tổng hợp và phản hồi API giả lập. Kiểm tra link mạng xã hội thực tế cần phiên đăng nhập của người dùng; OpenAI/Gemini thật cần API key hợp lệ. Chưa xác minh kết quả phân tích trên các dịch vụ thật.
+1. Tổng quan: mô tả, phong cách, palette Local và giới hạn.
+2. Cảnh: mốc ước lượng, ảnh mẫu và nút xem mốc trên video nguồn.
+3. Prompt: master, negative gợi ý và scene prompts.
+4. AI Tool: công cụ gốc **Unknown**; tách biệt nguồn phân tích báo cáo.
+5. Nhân vật: mô tả cảnh do AI trả về; Local không nhận diện chủ thể.
+6. Camera: camera, ánh sáng và chuyển động từ báo cáo, ghi rõ giới hạn Local.
+7. Audio: nêu **chưa phân tích âm thanh**, không bịa nhạc hoặc lời thoại.
+8. Kịch bản: dàn cảnh gợi ý từ hình ảnh, không phải thoại gốc.
+9. Viral: checklist biên tập, không dự đoán lượt xem hoặc điểm viral.
+10. Workflow: các bước tái tạo gợi ý, không giả nhận workflow gốc.
+11. Tái tạo: thông số nguồn và prompt gợi ý.
+12. Export: copy toàn bộ/all prompts/scene/master; tải JSON, TXT, Markdown, HTML; xem JSON chuẩn hóa. HTML không chứa script và escape nội dung AI.
 
-## Phát triển và kiểm thử
+## Cài đặt, lịch sử và cache
 
-Không cần npm install hoặc build; mã JavaScript module chạy trực tiếp trong extension. Node.js 20+ dùng cho kiểm thử.
+- Chuyển **Sáng/Tối**, mở Cài đặt để chọn ngôn ngữ, tối đa 12–60 ảnh, tự nhận diện và cache.
+- Lưu tối đa 20 báo cáo lịch sử + 8 cache trong Chrome Storage; không lưu ảnh hoặc key. Metadata có tiêu đề/URL nguồn. Cache có dấu SHA-256 của ảnh, thông số nguồn và tùy chọn phân tích; thay ảnh/model/ghi chú sẽ không dùng nhầm cache cũ.
+- **Phân tích lại** bỏ qua cache và lấy lại ảnh. **Xóa cache** không xóa lịch sử; lịch sử có nút xóa riêng. Tắt tự cache xóa cache đang có.
+- Mở báo cáo lịch sử không khôi phục ảnh/video. Chọn lại nguồn để phân tích mới.
+- **Giải phóng ảnh trong RAM** bỏ tham chiếu ảnh/blob video; vẫn giữ báo cáo để xuất. Trình duyệt quyết định thời điểm thu hồi bộ nhớ. Số hiển thị nếu có là JS heap, không phải tổng RAM của máy.
+
+## Phát triển & kiểm thử
+
+Không cần npm install/build. Node.js 20+ cho kiểm thử, Python stdlib cho đóng gói:
 
 ```sh
-cd /workspace/promt
 npm run check
 npm test
+python3 tests/browser_smoke.py
 npm run package
 ```
 
-Kiểm thử trình duyệt: `python3 tests/browser_smoke.py` cần Python Playwright, FFmpeg và Chromium (`/usr/bin/chromium`, hoặc đặt `CHROMIUM_PATH`). Kiểm thử tạo video WebM tổng hợp, chạy module giao diện và content script thật trong Chromium, lấy ảnh từ tệp/tab, chuẩn bị ảnh/hướng dẫn cho ChatGPT, mở link Instagram giả lập, tải danh sách model, xử lý model 404/quota và phân tích ảnh bằng OpenAI/Gemini giả lập. Chrome extension APIs được giả lập vì Chromium của môi trường cloud có chính sách quản trị chặn tải extension chưa đóng gói. Chưa xác minh side panel, cấp quyền activeTab và chụp tab qua API Chrome thật; cần kiểm tra sau khi cài trên trình duyệt người dùng. Không gọi các API AI thật hoặc cần credential.
+Browser smoke cần Python Playwright, FFmpeg và Chromium (`/usr/bin/chromium`, hoặc `CHROMIUM_PATH`). Kiểm thử video tổng hợp thật, chọn nhiều video, tua/khôi phục trạng thái, đo pixel, cache/lịch sử/settings, 12 tab, Web JSON import, 4 định dạng xuất, model/quota và payload OpenAI/Gemini giả lập. Kiểm tra bố cục 320–900px; ảnh kiểm thử ở `dist/v2-dashboard.png`, `dist/v2-export.png`.
+
+Chromium của môi trường cloud chặn nạp extension chưa đóng gói theo chính sách quản trị. Bài test chạy module/content script thật trong Chromium nhưng giả lập Chrome extension APIs; chưa xác minh `sidePanel`, quyền activeTab hoặc screenshot API thật. Mạng xã hội và dịch vụ AI thật cần đăng nhập/key của người dùng; kết quả phân tích trên các dịch vụ thật chưa được xác minh.
 
 ## Nguồn tham khảo
 
-Dựa trên cấu trúc Manifest V3, side panel, phát hiện video và lấy khung hình của bộ tệp người dùng cung cấp. Viết lại thành mã nguồn có thể đọc và kiểm thử. Không tái sử dụng module đăng nhập/kích hoạt, máy chủ `mdagent.duckdns.org`, `api.md-ai-analyzer.cloud` hoặc bundle ONNX/Transformers. Các bundle cũ và WASM không cần thiết cho bản mới.
+Cấu trúc Manifest V3, lấy khung hình và giao diện được viết lại từ bộ tệp/ảnh người dùng cung cấp. Không tái sử dụng server đăng nhập/kích hoạt, endpoint máy chủ riêng, bundle ONNX/Transformers hoặc WASM cũ. Bản này không chứa trọng số mô hình AI chạy cục bộ và không tạo màn hình đăng nhập/đăng xuất giả khi chưa có dịch vụ tài khoản.

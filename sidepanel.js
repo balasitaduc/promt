@@ -1,278 +1,333 @@
-import { MAX_FILE_SIZE, sampleTimes, formatTime, analyze, toMarkdown, validateVideoUrl, API_PROVIDERS, listModels, buildWebPrompt } from './core.js';
+import { MAX_FILE_SIZE, sampleTimes, formatTime, analyze, validateVideoUrl, API_PROVIDERS, listModels, buildInstruction, representativeFrames, parseAnalysis } from './core.js';
+import { analyzeLocal } from './local.js';
+import { Repository, browserAdapter, fingerprint } from './storage.js';
+import { REPORT_TABS, renderReport, reportMarkdown } from './reports.js';
 
 const $ = id => document.getElementById(id);
-const video = $('preview');
-let objectUrl, frames = [], meta = null, result = null, busy = false, fileReady = false, controller;
-function status(message, error = false) {
-  $('status').textContent = message;
-  $('status').classList.toggle('error', error);
-}
-function controls() {
-  $('video-file').disabled = busy;
-  $('capture-tab').disabled = busy;
-  $('open-link').disabled = busy;
-  $('video-url').disabled = busy;
-  $('frame-count').disabled = busy;
-  $('provider').disabled = busy;
-  $('model').disabled = busy;
-  $('api-key').disabled = busy;
-  $('load-models').disabled = busy || !$('api-key').value.trim();
-  $('extract').disabled = busy || !fileReady;
-  $('analyze').disabled = busy || $('provider').value === 'web' || !frames.length || !$('api-key').value.trim() || !$('consent').checked;
-  $('export-frames').disabled = busy;
-  for (const id of ['web-frames', 'web-copy', 'web-prompt-file']) $(id).disabled = busy || !frames.length;
-  video.controls = !busy;
-}
-function clearResults() {
-  result = null;
-  $('results').hidden = true;
-  $('result-body').replaceChildren();
-}
+const video = $('preview'), repository = new Repository(browserAdapter());
+const state = { source: 'tab', engine: 'local', busy: false, scanning: false, fileReady: false, objectUrl: null, meta: null, candidates: [], tabId: null, selectedId: '', frames: [], frameKey: '', sourceKey: '', report: null, reportTab: 0, controller: null };
+const element = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
+function status(message, error = false) { $('status').textContent = message; $('status').classList.toggle('error', error); }
+function progress(value, label) { $('progress').value = value; $('progress-percent').textContent = `${Math.round(value)}%`; $('progress-label').textContent = label; }
+function settings() { return repository.state.settings; }
+function frameCount() { return $('quality').value === 'fast' ? 12 : $('quality').value === 'deep' ? settings().maxFrames : Math.min(36, settings().maxFrames); }
+function language() { return settings().language === 'en' ? 'en' : 'vi'; }
 function clearFrames() {
-  frames = [];
-  $('frames').replaceChildren();
-  $('export-frames').hidden = true;
-  clearResults();
-  updateWebPrompt();
+  state.frames = []; state.frameKey = ''; $('frames').replaceChildren(); $('frame-count-label').textContent = 'Khung hình mẫu · 0'; updateWebPrompt();
 }
-function updateWebPrompt() {
-  $('chatgpt-prompt').value = frames.length && meta ? buildWebPrompt(meta, frames, $('language').value, $('goal').value) : '';
-}
-function showFrames() {
-  $('frames').replaceChildren(...frames.map(frame => {
-    const figure = document.createElement('figure');
-    const image = document.createElement('img');
-    image.src = frame.dataUrl;
-    image.alt = `Khung hình tại ${formatTime(frame.timestamp)}`;
-    const caption = document.createElement('figcaption');
-    caption.textContent = formatTime(frame.timestamp);
-    figure.append(image, caption);
-    return figure;
-  }));
-  $('export-frames').hidden = !frames.length;
-  $('video-info').textContent = `${meta.name} · ${meta.width} × ${meta.height} · ${meta.duration.toFixed(1)} giây · ${frames.length} khung hình`;
-  updateWebPrompt();
-  controls();
-}
-function waitEvent(target, name, action, timeout = 12000) {
-  return new Promise((resolve, reject) => {
-    const cleanup = () => { clearTimeout(timer); target.removeEventListener(name, done); target.removeEventListener('error', fail); };
-    const done = () => { cleanup(); resolve(); };
-    const fail = () => { cleanup(); reject(new Error('Không đọc/tua được video. Thử tệp MP4 (H.264) hoặc WebM có codec được Chrome hỗ trợ.')); };
-    const timer = setTimeout(fail, timeout);
-    target.addEventListener(name, done, { once: true });
-    target.addEventListener('error', fail, { once: true });
-    try { action(); } catch { fail(); }
-  });
-}
-async function seek(time) {
-  if (Math.abs(video.currentTime - time) < 0.025 && video.readyState >= 2) return;
-  await waitEvent(video, 'seeked', () => { video.currentTime = time; });
+function resetReport() { state.report = null; $('run-id').textContent = 'Chưa tạo báo cáo'; render(); }
+function controls() {
+  for (const id of ['source-tab', 'source-link', 'source-file', 'video-file', 'open-link', 'video-url', 'video-select', 'capture-tab', 'quality', 'provider', 'api-key', 'model', 'goal', 'settings-open', 'history-open', 'release-memory', 'clear-cache']) $(id).disabled = state.busy;
+  document.querySelectorAll('[data-engine]').forEach(button => { button.disabled = state.busy; });
+  const canAnalyze = state.source !== 'history' && (state.source !== 'file' || state.fileReady);
+  const apiReady = state.engine !== 'cloud' || ($('api-key').value.trim() && $('model').value.trim() && $('consent').checked);
+  $('analyze').disabled = state.busy || !canAnalyze || !apiReady;
+  $('reanalyze').disabled = $('analyze').disabled;
+  $('load-models').disabled = state.busy || !$('api-key').value.trim();
+  for (const id of ['web-frames', 'web-copy', 'web-prompt-file', 'export-frames']) $(id).disabled = state.busy || !state.frames.length;
+  $('import-result').disabled = state.busy || !state.frames.length || !$('import-json').value.trim();
+  for (const id of ['copy-result', 'export-open']) $(id).disabled = !state.report || state.busy;
+  $('analyze').textContent = state.engine === 'web' ? 'CHUẨN BỊ STORYBOARD + PROMPT' : 'PHÂN TÍCH VIDEO';
+  video.controls = !state.busy;
 }
 async function run(task) {
-  if (busy) return;
-  busy = true; controls();
+  if (state.busy) return;
+  state.busy = true; controls();
   try { await task(); }
-  catch (error) { status(error.message || 'Có lỗi xảy ra. Hãy thử lại.', true); }
-  finally { busy = false; $('progress').hidden = true; controls(); }
+  catch (error) { $('state').textContent = error.name === 'AbortError' ? 'CANCELLED' : 'ERROR'; status(error.message || 'Có lỗi xảy ra. Hãy thử lại.', true); }
+  finally { state.busy = false; controls(); }
 }
-$('video-file').addEventListener('change', () => run(async () => {
-  clearFrames(); fileReady = false; meta = null;
-  video.pause(); video.removeAttribute('src'); video.load(); video.hidden = true;
-  if (objectUrl) URL.revokeObjectURL(objectUrl);
-  const file = $('video-file').files[0];
-  if (!file) { $('video-info').textContent = 'Chưa chọn video.'; return; }
-  $('video-info').textContent = file.name;
-  if (file.size > MAX_FILE_SIZE) throw new Error('Tệp quá lớn. Chọn video tối đa 250 MB.');
-  objectUrl = URL.createObjectURL(file);
-  status('Đang đọc video…');
-  await waitEvent(video, 'loadeddata', () => { video.src = objectUrl; video.load(); });
-  sampleTimes(video.duration, Number($('frame-count').value));
-  if (!video.videoWidth || !video.videoHeight) throw new Error('Tệp không chứa hình ảnh video hợp lệ.');
-  meta = { name: file.name, duration: video.duration, width: video.videoWidth, height: video.videoHeight, frameCount: 0 };
-  fileReady = true; video.hidden = false;
-  $('video-info').textContent = `${file.name} · ${meta.width} × ${meta.height} · ${meta.duration.toFixed(1)} giây`;
-  status('Đã đọc video. Bấm “Lấy khung hình từ tệp” để xem ảnh mẫu.');
-}));
-
-$('extract').addEventListener('click', () => run(async () => {
-  clearFrames();
-  const times = sampleTimes(video.duration, Number($('frame-count').value));
-  const savedTime = video.currentTime, wasPaused = video.paused;
-  video.pause();
-  const canvas = document.createElement('canvas');
-  const scale = Math.min(1, 960 / Math.max(meta.width, meta.height));
-  canvas.width = Math.round(meta.width * scale); canvas.height = Math.round(meta.height * scale);
-  const ctx = canvas.getContext('2d');
-  const collected = [];
-  $('progress').hidden = false; $('progress').value = 0;
-  try {
-    for (let i = 0; i < times.length; i++) {
-      status(`Đang lấy khung hình ${i + 1}/${times.length}…`);
-      await seek(times[i]);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      collected.push({ timestamp: video.currentTime, dataUrl: canvas.toDataURL('image/jpeg', 0.78) });
-      $('progress').value = (i + 1) / times.length * 100;
-    }
-    frames = collected; meta.frameCount = frames.length;
-    showFrames(); status('Đã lấy khung hình. Kiểm tra ảnh trước khi gửi phân tích.');
-  } finally {
-    try { await seek(savedTime); } catch { /* Keep the extraction error if any. */ }
-    if (!wasPaused) video.play().catch(() => {});
-    canvas.width = canvas.height = 0;
+function updateMeta() {
+  const meta = state.meta;
+  $('duration').textContent = meta ? `${meta.duration.toFixed(1)} giây` : '—';
+  $('dimensions').textContent = meta ? `${meta.width}×${meta.height} (${meta.width === meta.height ? '1:1' : meta.width < meta.height ? 'dọc' : 'ngang'})` : '—';
+  $('video-info').textContent = meta?.url || meta?.name || 'Chọn video để bắt đầu'; $('video-info').title = $('video-info').textContent;
+  $('detect-light').classList.toggle('on', !!meta);
+  $('detection-status').textContent = !meta ? 'Chưa phát hiện video' : state.source === 'file' ? 'Đã đọc tệp video' : state.source === 'history' ? 'Báo cáo từ lịch sử' : /instagram\.com/.test(meta.url || '') ? 'Đã phát hiện video Instagram' : /facebook\.com|fb\.watch/.test(meta.url || '') ? 'Đã phát hiện video Facebook' : 'Đã phát hiện video trên tab';
+  controls();
+}
+function chooseSource(source) {
+  if (state.busy) return;
+  state.source = source; clearFrames(); state.meta = null; state.selectedId = ''; resetReport();
+  for (const name of ['tab', 'link', 'file']) {
+    $(`source-${name}`).setAttribute('aria-selected', String(name === source)); $(`${name}-source`).hidden = name !== source;
   }
+  $('source-badge').textContent = source === 'tab' ? 'Video đang mở' : source === 'link' ? 'Dán link video' : 'Tệp trên máy';
+  if (source !== 'file') { video.pause(); }
+  if (source === 'file' && state.fileReady) {
+    state.meta = { name: $('video-file').files[0].name, duration: video.duration, width: video.videoWidth, height: video.videoHeight, frameCount: 0 };
+    state.sourceKey = `file:${state.objectUrl}`;
+  }
+  $('state').textContent = 'IDLE'; progress(0, 'Sẵn sàng'); updateMeta();
+  if (source === 'tab') scan(true).catch(() => {});
+}
+for (const source of ['tab', 'link', 'file']) $(`source-${source}`).addEventListener('click', () => chooseSource(source));
+function setEngine(engine) {
+  if (state.busy) return;
+  if (engine !== state.engine) { $('api-key').value = ''; $('consent').checked = false; }
+  state.engine = engine;
+  document.querySelectorAll('[data-engine]').forEach(button => { const selected = button.dataset.engine === engine; button.classList.toggle('selected', selected); button.setAttribute('aria-checked', String(selected)); });
+  $('engine-badge').textContent = engine === 'local' ? 'LOCAL — MIỄN PHÍ' : engine === 'web' ? 'WEB AI — KHÔNG API' : 'CLOUD AI';
+  $('web-mode').hidden = engine !== 'web'; $('api-mode').hidden = engine !== 'cloud';
+  $('engine-status').textContent = engine === 'local' ? 'Sẵn sàng phân tích pixel cục bộ. Không tải mô hình Vision.' : engine === 'web' ? 'Chuẩn bị ảnh + hướng dẫn; nhập JSON để tạo báo cáo AI.' : 'Chọn nhà cung cấp, model hỗ trợ ảnh và nhập API key.';
+  updateWebPrompt(); controls();
+}
+document.querySelectorAll('[data-engine]').forEach(button => button.addEventListener('click', () => setEngine(button.dataset.engine)));
+function selectProvider() {
+  const config = API_PROVIDERS[$('provider').value];
+  $('api-key').value = ''; $('consent').checked = false; $('model-options').replaceChildren();
+  $('model').value = config.defaultModel; $('api-key-label').textContent = `${config.label} API key`;
+  $('key-link').href = config.keyUrl; $('key-link').textContent = config.label;
+  $('consent-text').textContent = `Tôi đồng ý gửi ảnh và ghi chú đến ${config.label}. API có thể tính phí.`; controls();
+}
+$('provider').addEventListener('change', selectProvider);
+for (const id of ['api-key', 'consent', 'model', 'import-json']) $(id).addEventListener('input', controls);
+$('api-key').addEventListener('input', () => $('model-options').replaceChildren());
+$('goal').addEventListener('input', updateWebPrompt);
+$('load-models').addEventListener('click', () => run(async () => {
+  status('Đang tải danh sách model bằng key của bạn…');
+  const models = await listModels({ provider: $('provider').value, key: $('api-key').value, signal: AbortSignal.timeout(20000) });
+  if (!models.length) throw new Error('Không tìm thấy model phù hợp. Chọn Web AI để dùng không cần API key.');
+  $('model-options').replaceChildren(...models.map(name => { const option = element('option'); option.value = name; return option; }));
+  if (!models.includes($('model').value)) $('model').value = models[0];
+  status(`Đã tải ${models.length} model; chọn model có hỗ trợ ảnh và JSON.`);
 }));
 
-async function captureTab(tab) {
-  status('Đang lấy khung hình trên tab; vui lòng giữ nguyên video và không chuyển trang…');
-  if (!globalThis.chrome?.tabs || !chrome.scripting) throw new Error('Chức năng này cần chạy trong extension Chrome/Edge.');
-  if (!tab?.id || !/^https?:\/\//.test(tab.url || '')) throw new Error('Chọn tab trang web có video rồi mở extension bằng biểu tượng trên thanh công cụ.');
-  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-  const response = await chrome.tabs.sendMessage(tab.id, { type: 'VP_EXTRACT', count: Number($('frame-count').value) });
-  if (!response?.ok) throw new Error(response?.error || 'Không kết nối được video trên tab.');
-  clearFrames(); video.pause(); video.hidden = true; fileReady = false;
-  if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
-  video.removeAttribute('src'); video.load(); $('video-file').value = '';
-  frames = response.frames; meta = response.meta;
-  showFrames(); status('Đã lấy khung hình từ tab. Video đã được trả về vị trí ban đầu.');
+async function tabCommand(tabId, command) {
+  try { return await chrome.tabs.sendMessage(tabId, command); }
+  catch { await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] }); return chrome.tabs.sendMessage(tabId, command); }
 }
-$('capture-tab').addEventListener('click', () => run(async () => {
-  if (!globalThis.chrome?.tabs) throw new Error('Hãy mở giao diện trong extension Chrome/Edge.');
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  await captureTab(tab);
-}));
+async function scan(quiet = false, explicitTab, duringWork = false) {
+  if ((state.busy && !duringWork) || state.scanning || state.source === 'file' || state.source === 'history') return;
+  const requestedSource = state.source;
+  state.scanning = true;
+  try {
+    if (!globalThis.chrome?.tabs) throw new Error('Chức năng quét video cần chạy trong extension Chrome/Edge.');
+    const tab = explicitTab || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+    if (!tab?.id || !/^https?:\/\//.test(tab.url || '')) throw new Error('Mở tab Facebook/Instagram có video và bấm biểu tượng extension.');
+    if (quiet && !/^https:\/\/(www\.)?(instagram\.com|facebook\.com|m\.facebook\.com|fb\.watch)\//.test(tab.url)) return;
+    const response = await tabCommand(tab.id, { type: 'VP_DETECT' });
+    if (state.source !== requestedSource || (state.busy && !duringWork)) return;
+    if (!response?.ok) throw new Error('Không nhận được thông tin video. Hãy phát video rồi Quét lại.');
+    state.tabId = tab.id; state.candidates = response.candidates;
+    const chosen = state.candidates.find(item => item.id === state.selectedId) || state.candidates[0];
+    $('video-select').replaceChildren(...state.candidates.map((item, i) => { const option = element('option', `${i + 1}. ${item.name} · ${item.duration.toFixed(1)}s · ${item.width}×${item.height}`); option.value = item.id; return option; }));
+    if (!chosen) {
+      $('video-select').append(element('option', 'Chưa có video hiển thị')); state.meta = null; state.selectedId = ''; clearFrames();
+      if (!quiet) status('Chưa thấy video. Phát đúng video, đóng hộp thoại và Quét lại.');
+    } else {
+      $('tab-source').hidden = false;
+      const key = `${tab.id}:${chosen.id}`;
+      if (key !== state.sourceKey) { clearFrames(); resetReport(); state.sourceKey = key; }
+      state.selectedId = chosen.id; $('video-select').value = chosen.id;
+      state.meta = { name: response.title || 'Video trên tab', url: response.url || tab.url, duration: chosen.duration, width: chosen.width, height: chosen.height, frameCount: state.frames.length };
+      if (!quiet) status(`Phát hiện ${state.candidates.length} video. Chọn video cần phân tích rồi bấm nút bên dưới.`);
+    }
+    updateMeta();
+  } catch (error) { if (!quiet) status(error.message, true); }
+  finally { state.scanning = false; }
+}
+$('capture-tab').addEventListener('click', () => scan(false));
+$('video-select').addEventListener('change', () => {
+  const selected = state.candidates.find(item => item.id === $('video-select').value);
+  if (!selected || !state.meta) return;
+  clearFrames(); resetReport(); state.selectedId = selected.id; state.sourceKey = `${state.tabId}:${selected.id}`;
+  state.meta = { ...state.meta, duration: selected.duration, width: selected.width, height: selected.height, frameCount: 0 }; updateMeta();
+});
 $('open-link').addEventListener('click', () => run(async () => {
   const url = validateVideoUrl($('video-url').value);
-  if (!globalThis.chrome?.tabs) throw new Error('Hãy mở giao diện trong extension Chrome/Edge.');
+  if (!globalThis.chrome?.tabs) throw new Error('Mở giao diện trong extension Chrome/Edge để dùng link.');
   const tab = await chrome.tabs.create({ url, active: true });
-  status('Đang mở link. Nếu trang yêu cầu đăng nhập, hãy đăng nhập trên tab video…');
+  status('Đang mở link. Đăng nhập và phát video nếu trang yêu cầu…');
   for (let attempt = 0; attempt < 25; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 1000));
     const current = await chrome.tabs.get(tab.id);
     if (current.status !== 'complete') continue;
-    let ready = false;
     try {
-      const [probe] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => [...document.querySelectorAll('video')].some(v => { const r = v.getBoundingClientRect(); return v.readyState >= 2 && Number.isFinite(v.duration) && v.duration > 0 && r.width > 40 && r.height > 40 && r.bottom > 0 && r.top < innerHeight; }) });
-      ready = probe?.result;
-    } catch { /* Login redirects may temporarily have no script access. */ }
-    if (ready) { await captureTab(current); return; }
+      const response = await tabCommand(tab.id, { type: 'VP_DETECT' });
+      if (response?.candidates?.some(v => v.duration > 0 && v.width > 0)) {
+        await scan(false, current, true); return;
+      }
+    } catch { /* Login redirects can temporarily deny access. */ }
   }
-  throw new Error('Chưa đọc được video từ link. Đăng nhập nếu cần, đóng hộp thoại và phát đúng video trên tab vừa mở; sau đó bấm “Lấy video từ tab đang mở”.');
+  throw new Error('Chưa đọc được video. Đăng nhập, phát video trên tab vừa mở rồi bấm Quét lại.');
 }));
-
-for (const id of ['api-key', 'consent']) $(id).addEventListener('input', controls);
-for (const id of ['goal', 'language']) $(id).addEventListener('input', updateWebPrompt);
-function selectProvider() {
-  const provider = $('provider').value;
-  const isWeb = provider === 'web';
-  $('web-mode').hidden = !isWeb; $('api-mode').hidden = isWeb;
-  $('api-key').value = ''; $('consent').checked = false;
-  $('model-options').replaceChildren();
-  if (!isWeb) {
-    const config = API_PROVIDERS[provider];
-    $('api-summary').textContent = `Kết nối ${config.label} API`;
-    $('api-key-label').textContent = `${config.label} API key`;
-    $('model').value = config.defaultModel;
-    $('key-link').href = config.keyUrl;
-    $('key-link').textContent = provider === 'openai' ? 'OpenAI Platform' : 'Google AI Studio';
-    $('consent-text').textContent = `Tôi đồng ý gửi các khung hình và ghi chú đến ${config.label} để phân tích. API có thể tính phí theo tài khoản của tôi.`;
-  }
-  controls();
-}
-$('provider').addEventListener('change', selectProvider);
-$('api-key').addEventListener('input', () => { $('model-options').replaceChildren(); });
-$('load-models').addEventListener('click', () => run(async () => {
-  status('Đang tải các model khả dụng cho API key của bạn…');
-  const models = await listModels({ provider: $('provider').value, key: $('api-key').value, signal: AbortSignal.timeout(20000) });
-  $('model-options').replaceChildren(...models.map(model => {
-    const option = document.createElement('option'); option.value = model; return option;
-  }));
-  if (!models.length) throw new Error('Không tìm thấy model phù hợp cho key này. Chuyển sang ChatGPT web hoặc kiểm tra quyền API.');
-  if (!models.includes($('model').value)) $('model').value = models[0];
-  status(`Đã tải ${models.length} model. Chọn trong ô model; kiểm tra model có hỗ trợ ảnh và JSON trước khi phân tích.`);
-}));
-$('analyze').addEventListener('click', () => run(async () => {
-  if (!$('consent').checked) throw new Error('Cần đồng ý gửi khung hình trước khi phân tích.');
-  const provider = $('provider').value;
-  const providerName = API_PROVIDERS[provider]?.label;
-  if (!providerName) throw new Error('Chọn OpenAI API hoặc Gemini API để phân tích tự động.');
-  clearResults();
-  controller = new AbortController();
-  $('cancel').hidden = false;
-  const timeout = setTimeout(() => controller?.abort('timeout'), 120000);
-  status(`${providerName} đang phân tích các khung hình…`);
-  // Keep result metadata consistent if controls are edited while the request is pending.
-  const runMeta = { ...meta };
-  try {
-    const output = await analyze({ provider, key: $('api-key').value, model: $('model').value.trim(), frames, meta: runMeta, language: $('language').value, goal: $('goal').value, signal: controller.signal });
-    if (controller.signal.aborted) return;
-    result = output;
-    renderResult();
-    $('results').hidden = false;
-    status('Đã tạo phân tích và prompt. Bạn có thể sao chép hoặc tải kết quả.');
-  } catch (error) {
-    if (controller.signal.aborted) status(controller.signal.reason === 'timeout' ? 'AI phản hồi quá thời gian 120 giây. Hãy thử lại với ít khung hình hơn.' : 'Đã hủy yêu cầu AI.');
-    else if (error instanceof TypeError) throw new Error(`Không kết nối được ${providerName}. Kiểm tra Internet và quyền truy cập API.`);
-    else throw error;
-  } finally {
-    clearTimeout(timeout); controller = null; $('cancel').hidden = true;
-  }
-}));
-$('cancel').addEventListener('click', () => controller?.abort('user'));
-
-function textBlock(parent, title, value, prompt = false) {
-  const heading = document.createElement('h4'); heading.textContent = title;
-  const text = document.createElement('div'); text.className = `result-text${prompt ? ' prompt' : ''}`; text.textContent = value;
-  parent.append(heading, text);
-}
-async function copy(text) {
-  try { await navigator.clipboard.writeText(text); status('Đã sao chép vào clipboard.'); }
-  catch { status('Không thể ghi clipboard. Bạn có thể chọn văn bản hoặc tải tệp .md.', true); }
-}
-function renderResult() {
-  const root = $('result-body'); root.replaceChildren();
-  textBlock(root, 'Tổng quan', result.summary);
-  textBlock(root, 'Phong cách hình ảnh', result.visualStyle);
-  textBlock(root, 'Prompt tổng · English', result.masterPrompt, true);
-  textBlock(root, 'Negative prompt gợi ý', result.negativePrompt, true);
-  result.scenes.forEach((scene, index) => {
-    const section = document.createElement('article'); section.className = 'scene';
-    textBlock(section, `Cảnh ${index + 1} · ${formatTime(scene.start)} – ${formatTime(scene.end)} (ước lượng)`, scene.description);
-    textBlock(section, 'Camera · Ánh sáng · Chuyển động', `${scene.camera}\n${scene.lighting}\n${scene.motion}`);
-    textBlock(section, 'Prompt cảnh · English', scene.prompt, true);
-    const button = document.createElement('button'); button.className = 'secondary'; button.textContent = 'Sao chép prompt cảnh';
-    button.addEventListener('click', () => copy(scene.prompt)); section.append(button); root.append(section);
+function waitEvent(target, name, action, timeout = 12000) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => { clearTimeout(timer); target.removeEventListener(name, done); target.removeEventListener('error', fail); };
+    const done = () => { cleanup(); resolve(); };
+    const fail = () => { cleanup(); reject(new Error('Không đọc hoặc tua được video. Thử MP4 H.264 hoặc WebM có codec được hỗ trợ.')); };
+    const timer = setTimeout(fail, timeout);
+    target.addEventListener(name, done, { once: true }); target.addEventListener('error', fail, { once: true });
+    try { action(); } catch { fail(); }
   });
-  textBlock(root, 'Giới hạn phân tích', result.limitations);
 }
-function download(blob, name) {
-  const url = URL.createObjectURL(blob), a = document.createElement('a');
-  a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 30000);
+async function seek(time) { if (Math.abs(video.currentTime - time) > 0.025 || video.readyState < 2) await waitEvent(video, 'seeked', () => { video.currentTime = time; }); }
+$('video-file').addEventListener('change', () => run(async () => {
+  clearFrames(); resetReport(); state.meta = null; state.fileReady = false;
+  updateMeta();
+  video.pause(); video.removeAttribute('src'); video.load(); video.hidden = true;
+  if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
+  const file = $('video-file').files[0];
+  if (!file) { updateMeta(); return; }
+  if (file.size > MAX_FILE_SIZE) throw new Error('Chọn tệp tối đa 250 MB.');
+  status('Đang đọc video…'); state.objectUrl = URL.createObjectURL(file);
+  await waitEvent(video, 'loadeddata', () => { video.src = state.objectUrl; video.load(); });
+  sampleTimes(video.duration, frameCount());
+  if (!video.videoWidth || !video.videoHeight) throw new Error('Tệp không chứa hình ảnh video hợp lệ.');
+  state.fileReady = true; video.hidden = false; state.sourceKey = `file:${state.objectUrl}`;
+  state.meta = { name: file.name, duration: video.duration, width: video.videoWidth, height: video.videoHeight, frameCount: 0 };
+  $('state').textContent = 'READY'; updateMeta(); status('Đã đọc video. Bấm PHÂN TÍCH VIDEO để lấy ảnh và tạo báo cáo.');
+}));
+function checkCancelled() { if (state.controller?.signal.aborted) throw new Error('Đã hủy phân tích.'); }
+async function extractFrames(force = false) {
+  const count = frameCount(), key = `${state.sourceKey}:${count}`;
+  if (!force && state.frames.length && state.frameKey === key) return;
+  clearFrames(); progress(3, 'Trích xuất khung hình'); $('state').textContent = 'EXTRACTING';
+  if (state.source === 'file') {
+    const savedTime = video.currentTime, wasPaused = video.paused; video.pause();
+    const canvas = document.createElement('canvas'), scale = Math.min(1, 960 / Math.max(state.meta.width, state.meta.height));
+    canvas.width = Math.round(state.meta.width * scale); canvas.height = Math.round(state.meta.height * scale);
+    const ctx = canvas.getContext('2d'), frames = [];
+    try {
+      const times = sampleTimes(state.meta.duration, count);
+      for (let i = 0; i < times.length; i++) {
+        checkCancelled(); await seek(times[i]); ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        frames.push({ timestamp: video.currentTime, dataUrl: canvas.toDataURL('image/jpeg', 0.78) });
+        progress((i + 1) / times.length * 45, `Trích xuất khung hình ${i + 1}/${times.length}`);
+      }
+      state.frames = frames;
+    } finally { try { await seek(savedTime); } catch {} if (!wasPaused) video.play().catch(() => {}); canvas.width = canvas.height = 0; }
+  } else {
+    const response = await tabCommand(state.tabId, { type: 'VP_EXTRACT', count, videoId: state.selectedId });
+    if (!response?.ok) throw new Error(response?.error || 'Không lấy được khung hình video.');
+    state.frames = response.frames;
+    state.meta = { ...state.meta, ...response.meta };
+  }
+  checkCancelled(); state.meta.frameCount = state.frames.length; state.frameKey = key;
+  $('frames').replaceChildren(...state.frames.map(frame => { const figure = element('figure'), img = element('img'); img.src = frame.dataUrl; img.alt = `Khung hình ${formatTime(frame.timestamp)}`; figure.append(img, element('figcaption', formatTime(frame.timestamp))); return figure; }));
+  $('frame-count-label').textContent = `Khung hình mẫu · ${state.frames.length}`; updateWebPrompt(); updateMeta();
 }
-$('copy-all').addEventListener('click', () => result && copy(toMarkdown(result, meta)));
-$('export-md').addEventListener('click', () => result && download(new Blob([toMarkdown(result, meta)], { type: 'text/markdown;charset=utf-8' }), 'video-prompt.md'));
-$('export-json').addEventListener('click', () => result && download(new Blob([JSON.stringify({ metadata: meta, analysis: result }, null, 2)], { type: 'application/json' }), 'video-prompt.json'));
-$('web-copy').addEventListener('click', () => copy($('chatgpt-prompt').value));
-$('web-prompt-file').addEventListener('click', () => download(new Blob([$('chatgpt-prompt').value], { type: 'text/plain;charset=utf-8' }), 'chatgpt-instructions.txt'));
+function updateWebPrompt() {
+  $('chatgpt-prompt').value = state.frames.length && state.meta ? `${buildInstruction(state.meta, language(), $('goal').value)}\nI attached a contact sheet of ${state.frames.length} frames in row-major chronological order. Timestamps in seconds: ${state.frames.map(frame => frame.timestamp.toFixed(3)).join(', ')}. If the image is missing, ask me to attach video-frames.jpg; do not infer the video from a link alone. Return the JSON object so I can import it into my extension.` : '';
+}
+async function saveReport(analysis, engine, elapsedMs, cacheKey) {
+  state.report = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), engine, meta: { ...state.meta }, analysis, elapsedMs };
+  try { await repository.addReport(state.report, cacheKey); }
+  catch (error) { status(`Đã tạo báo cáo nhưng chưa lưu được lịch sử/cache: ${error.message}`, true); }
+  state.reportTab = 0; $('run-id').textContent = state.report.id; render(); controls();
+}
+async function startAnalysis(force = false) {
+  if (!state.meta && state.source !== 'file') await scan(false);
+  if (!state.meta) { status('Chọn hoặc phát video trước khi phân tích.', true); return; }
+  await run(async () => {
+    resetReport(); const started = performance.now(); state.controller = new AbortController(); $('cancel').hidden = false;
+    let timeout;
+    try {
+      await extractFrames(force); checkCancelled();
+      if (state.engine === 'web') {
+        $('state').textContent = 'WEB_READY'; progress(100, 'Storyboard + hướng dẫn đã sẵn sàng');
+        $('engine-status').textContent = 'Đã chuẩn bị ảnh và hướng dẫn. Tự gửi lên Web AI, sau đó nhập JSON trả về.';
+        status('Tải Storyboard, copy hướng dẫn và gửi trong ChatGPT/Gemini. Chưa có kết quả AI cho đến khi bạn nhập JSON.'); return;
+      }
+      const options = { version: 2, engine: state.engine, provider: state.engine === 'cloud' ? $('provider').value : null, model: state.engine === 'cloud' ? $('model').value : null, language: language(), goal: $('goal').value };
+      const cacheKey = await fingerprint(state.frames, state.meta, options);
+      const cached = !force && settings().cache ? repository.state.cache[cacheKey] : null;
+      if (cached) { state.report = cached; $('run-id').textContent = cached.id; $('state').textContent = 'CACHED'; progress(100, 'Đã đọc báo cáo từ cache'); render(); status('Đã dùng kết quả cache. Bấm Phân tích lại để chạy mới.'); return; }
+      $('state').textContent = 'ANALYZING'; let analysis, engine;
+      if (state.engine === 'local') {
+        engine = 'Local · đo pixel, không có mô hình Vision';
+        analysis = await analyzeLocal(state.frames, state.meta, $('goal').value, language(), (current, total) => { checkCancelled(); progress(45 + current / total * 50, `Đo ảnh cục bộ ${current}/${total}`); });
+      } else {
+        if (!$('consent').checked) throw new Error('Cần đồng ý gửi ảnh trước khi gọi API.');
+        const selected = representativeFrames(state.frames), provider = $('provider').value;
+        engine = `${API_PROVIDERS[provider].label} API · ${$('model').value} · ${selected.length}/${state.frames.length} ảnh`;
+        progress(60, `${API_PROVIDERS[provider].label} đang phân tích…`);
+        timeout = setTimeout(() => state.controller?.abort('timeout'), 120000);
+        analysis = await analyze({ provider, key: $('api-key').value, model: $('model').value.trim(), frames: selected, meta: state.meta, language: language(), goal: $('goal').value, signal: state.controller.signal });
+      }
+      checkCancelled(); const elapsed = Math.round(performance.now() - started);
+      await saveReport(analysis, engine, elapsed, cacheKey);
+      $('state').textContent = 'COMPLETED'; progress(100, 'Tạo báo cáo'); $('engine-status').textContent = `Hoàn tất: ${engine}. ${analysis.scenes.length} cảnh ước lượng.`;
+      $('performance').textContent = `Tổng thời gian: ${elapsed} ms${performance.memory ? ` · JS heap hiện tại: ~${(performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1)} MB (không phải tổng RAM)` : ' · Trình duyệt không cung cấp số đo bộ nhớ'}`;
+      status('Đã tạo báo cáo. Chọn tab để xem chi tiết, copy hoặc xuất tệp.');
+    } catch (error) {
+      if (state.controller?.signal.aborted) {
+        const cancelled = new Error(state.controller.signal.reason === 'timeout' ? 'API quá thời gian 120 giây. Thử ít ảnh hơn hoặc đổi model.' : 'Đã hủy phân tích.');
+        cancelled.name = 'AbortError'; throw cancelled;
+      }
+      throw error;
+    } finally { clearTimeout(timeout); state.controller = null; $('cancel').hidden = true; }
+  });
+}
+$('analyze').addEventListener('click', () => startAnalysis()); $('reanalyze').addEventListener('click', () => startAnalysis(true));
+$('cancel').addEventListener('click', () => { state.controller?.abort('user'); if (state.tabId) chrome.tabs.sendMessage(state.tabId, { type: 'VP_CANCEL' }).catch(() => {}); });
+$('import-json').addEventListener('input', controls);
+$('import-result').addEventListener('click', () => run(async () => {
+  if (!state.frames.length || !state.meta) throw new Error('Chuẩn bị khung hình cho video này trước khi nhập JSON.');
+  const text = $('import-json').value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  if (text.length > 1000000) throw new Error('JSON quá lớn (tối đa 1 MB).');
+  const analysis = parseAnalysis(text, state.meta.duration);
+  await saveReport(analysis, 'Web AI · JSON do người dùng nhập', 0);
+  $('state').textContent = 'IMPORTED'; progress(100, 'Đã nhập & kiểm tra JSON'); status('Đã nhập kết quả. Kiểm tra nội dung AI với ảnh/video nguồn.');
+}));
+function render() {
+  $('report-tabs').replaceChildren(...REPORT_TABS.map((title, index) => { const button = element('button', `${index + 1}. ${title}`); button.title = title; button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(state.reportTab === index)); button.addEventListener('click', () => { state.reportTab = index; render(); }); return button; }));
+  renderReport($('result-body'), state.report, state.reportTab, { frames: state.frames, copy, download, seek: async time => {
+    try {
+      if (state.source === 'file' && state.fileReady) await seek(time);
+      else if (state.source !== 'history' && state.tabId) { const result = await tabCommand(state.tabId, { type: 'VP_SEEK', videoId: state.selectedId, time }); if (!result?.ok) throw new Error('Video không còn khả dụng. Quét lại video.'); }
+      else throw new Error('Báo cáo lịch sử không giữ video. Chọn lại video nguồn để xem mốc.');
+    } catch (error) { status(error.message, true); }
+  } });
+}
+$('export-open').addEventListener('click', () => { state.reportTab = 11; render(); $('results').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+$('copy-result').addEventListener('click', () => state.report && copy(reportMarkdown(state.report)));
+async function copy(text) { try { await navigator.clipboard.writeText(text); status('Đã sao chép vào clipboard.'); } catch { status('Không ghi được clipboard. Chọn văn bản hoặc tải tệp thay thế.', true); } }
+function download(blob, name) { const url = URL.createObjectURL(blob), a = element('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 30000); }
 async function exportFrames() {
   const canvas = document.createElement('canvas'), columns = 3, cellW = 320, cellH = 210;
-  canvas.width = columns * cellW; canvas.height = Math.ceil(frames.length / columns) * cellH;
-  const ctx = canvas.getContext('2d'); ctx.fillStyle = '#0b1018'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  for (let i = 0; i < frames.length; i++) {
-    const image = new Image(); image.src = frames[i].dataUrl; await image.decode();
-    const scale = Math.min((cellW - 12) / image.width, (cellH - 34) / image.height);
-    const x = (i % columns) * cellW, y = Math.floor(i / columns) * cellH;
+  canvas.width = columns * cellW; canvas.height = Math.ceil(state.frames.length / columns) * cellH;
+  const ctx = canvas.getContext('2d'); ctx.fillStyle = '#101827'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < state.frames.length; i++) {
+    const image = new Image(); image.src = state.frames[i].dataUrl; await image.decode();
+    const scale = Math.min((cellW - 12) / image.width, (cellH - 34) / image.height), x = i % columns * cellW, y = Math.floor(i / columns) * cellH;
     ctx.drawImage(image, x + (cellW - image.width * scale) / 2, y + 4, image.width * scale, image.height * scale);
-    ctx.fillStyle = '#e7edf6'; ctx.font = '14px sans-serif'; ctx.fillText(formatTime(frames[i].timestamp), x + 12, y + cellH - 10);
+    ctx.fillStyle = '#f5f8ff'; ctx.font = '14px sans-serif'; ctx.fillText(formatTime(state.frames[i].timestamp), x + 12, y + cellH - 10);
   }
-  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
-  if (!blob) throw new Error('Không tạo được bảng khung hình.');
-  download(blob, 'video-frames.jpg'); status('Đã tải bảng khung hình.');
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9)); canvas.width = canvas.height = 0;
+  if (!blob) throw new Error('Không tạo được bảng ảnh.'); download(blob, 'video-frames.jpg'); status('Đã tải Storyboard JPEG.');
 }
-$('export-frames').addEventListener('click', () => run(exportFrames));
-$('web-frames').addEventListener('click', () => run(exportFrames));
-window.addEventListener('pagehide', () => {
-  controller?.abort('closed'); $('api-key').value = '';
-  if (objectUrl) URL.revokeObjectURL(objectUrl);
+for (const id of ['export-frames', 'web-frames']) $(id).addEventListener('click', () => run(exportFrames));
+$('web-copy').addEventListener('click', () => copy($('chatgpt-prompt').value));
+$('web-prompt-file').addEventListener('click', () => download(new Blob([$('chatgpt-prompt').value], { type: 'text/plain;charset=utf-8' }), 'chatgpt-instructions.txt'));
+$('release-memory').addEventListener('click', () => { clearFrames(); render(); video.pause(); video.removeAttribute('src'); video.load(); video.hidden = true; $('video-file').value = ''; state.fileReady = false; if (state.objectUrl) URL.revokeObjectURL(state.objectUrl); state.objectUrl = null; controls(); status('Đã bỏ tham chiếu khung hình và tệp video. Báo cáo vẫn có thể xuất. Trình duyệt tự quyết định thời điểm thu hồi bộ nhớ.'); });
+$('clear-cache').addEventListener('click', () => run(async () => { await repository.clearCache(); status('Đã xóa cache kết quả; lịch sử vẫn được giữ.'); }));
+for (const button of document.querySelectorAll('[data-close]')) button.addEventListener('click', () => $(button.dataset.close).close());
+$('settings-open').addEventListener('click', () => {
+  $('settings-language').value = settings().language; $('settings-frames').value = settings().maxFrames; $('settings-auto').checked = settings().autoDetect; $('settings-cache').checked = settings().cache; $('settings-error').textContent = ''; $('settings-dialog').showModal();
 });
-selectProvider();
+$('settings-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  try { await repository.saveSettings({ ...settings(), language: $('settings-language').value, maxFrames: Number($('settings-frames').value), autoDetect: $('settings-auto').checked, cache: $('settings-cache').checked }); updateWebPrompt(); $('settings-dialog').close(); status('Đã lưu cài đặt trên trình duyệt này.'); }
+  catch (error) { $('settings-error').textContent = error.message; }
+});
+$('theme').addEventListener('click', async () => { try { await repository.saveSettings({ ...settings(), theme: settings().theme === 'dark' ? 'light' : 'dark' }); document.documentElement.dataset.theme = settings().theme; } catch (error) { status(error.message, true); } });
+function renderHistory() {
+  $('history-list').replaceChildren();
+  if (!repository.state.history.length) $('history-list').append(element('p', 'Chưa có báo cáo trong lịch sử.', 'hint'));
+  for (const report of repository.state.history) {
+    const article = element('article', undefined, 'history-item'), detail = element('div'), open = element('button', 'Mở lại');
+    detail.append(element('strong', `${report.analysis.scenes.length} cảnh · ${report.meta.duration.toFixed(1)}s`), element('p', report.engine), element('p', `${report.meta.name} · ${new Date(report.createdAt).toLocaleString('vi-VN')}`));
+    open.addEventListener('click', () => { video.pause(); clearFrames(); state.source = 'history'; state.meta = { ...report.meta }; state.report = report; state.reportTab = 0; $('state').textContent = 'HISTORY'; $('run-id').textContent = report.id; progress(100, 'Báo cáo từ lịch sử'); updateMeta(); render(); $('history-dialog').close(); status('Đã mở báo cáo lưu. Không giữ video/ảnh; chọn lại nguồn để chạy phân tích mới.'); });
+    article.append(detail, open); $('history-list').append(article);
+  }
+}
+$('history-open').addEventListener('click', () => { renderHistory(); $('history-dialog').showModal(); });
+$('clear-history').addEventListener('click', async () => { try { await repository.clearHistory(); renderHistory(); status('Đã xóa lịch sử. Cache riêng có thể xóa bằng nút Xóa cache.'); } catch (error) { status(error.message, true); } });
+globalThis.chrome?.runtime?.onMessage?.addListener((message, sender) => { if (message.type === 'VP_PROGRESS' && state.busy && sender?.tab?.id === state.tabId) progress(message.current / message.total * 45, `Trích xuất khung hình ${message.current}/${message.total}`); });
+window.addEventListener('pagehide', () => { state.controller?.abort('closed'); $('api-key').value = ''; if (state.objectUrl) URL.revokeObjectURL(state.objectUrl); });
+try { await repository.load(); document.documentElement.dataset.theme = settings().theme; } catch (error) { status(`Không đọc được cài đặt lưu: ${error.message}`, true); }
+selectProvider(); render(); controls();
+if (settings().autoDetect) scan(true).catch(() => {});
+setInterval(() => { if (settings().autoDetect && !document.hidden) scan(true).catch(() => {}); }, 4000);
