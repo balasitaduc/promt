@@ -35,15 +35,31 @@
       <label for="goal">Ý tưởng muốn tái tạo <span class="muted">· tùy chọn</span></label>
       <textarea id="goal" rows="2" maxlength="1000" placeholder="Ví dụ: Giữ phong cách điện ảnh, đổi chủ thể thành sản phẩm nước hoa…"></textarea>
       <div class="row"><label for="language">Ngôn ngữ phân tích</label><select id="language"><option value="vi">Tiếng Việt</option><option value="en">English</option></select></div>
-      <details open><summary>Kết nối Gemini</summary>
-        <label for="api-key">Gemini API key</label><input id="api-key" type="password" autocomplete="off" placeholder="Nhập key của bạn">
-        <p class="hint">Key chỉ giữ trong bộ nhớ khi bảng đang mở, không lưu vào ổ đĩa. Bạn có thể tạo key tại <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.</p>
-        <label for="model">Model hỗ trợ hình ảnh</label><input id="model" value="gemini-2.5-flash" placeholder="gemini-2.5-flash" spellcheck="false">
-      </details>
-      <label class="consent"><input id="consent" type="checkbox"><span>Tôi đồng ý gửi các khung hình đã chọn và ghi chú đến Google Gemini để phân tích. API có thể tính phí theo tài khoản của tôi.</span></label>
-      <button id="analyze" class="primary full" disabled>Phân tích & tạo prompt <span>↗</span></button>
+      <div class="row"><label for="provider">Công cụ phân tích</label><select id="provider"><option value="web" selected>ChatGPT web · Không cần key</option><option value="openai">OpenAI API · Tự động</option><option value="gemini">Gemini API · Tự động</option></select></div>
+      <div id="web-mode">
+        <p class="notice">Dùng tài khoản ChatGPT bạn đang có. Extension chuẩn bị ảnh và hướng dẫn; bạn tự đính kèm ảnh và gửi trong ChatGPT. Không cần API key.</p>
+        <ol class="hint"><li>Lấy khung hình từ video, rồi tải bảng ảnh.</li><li>Sao chép hướng dẫn bên dưới.</li><li>Mở ChatGPT, đính kèm <strong>video-frames.jpg</strong>, dán hướng dẫn và gửi.</li></ol>
+        <button id="web-frames" class="primary full" disabled>1. Tải bảng ảnh cho ChatGPT ↓</button>
+        <label for="chatgpt-prompt" style="margin-top:14px">Hướng dẫn phân tích</label>
+        <textarea id="chatgpt-prompt" rows="5" readonly placeholder="Chọn video và lấy khung hình để chuẩn bị hướng dẫn…"></textarea>
+        <div class="toolbar"><button id="web-copy" class="secondary" disabled>2. Sao chép hướng dẫn</button><button id="web-prompt-file" class="secondary" disabled>Tải hướng dẫn .txt</button></div>
+        <a id="open-chatgpt" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">3. Mở ChatGPT ↗</a>
+        <p class="hint">Kết quả hiển thị trong ChatGPT. Khả năng tải ảnh và hạn mức phụ thuộc tài khoản ChatGPT của bạn. Extension không tự gửi, đọc hội thoại hoặc dùng phiên đăng nhập để gọi API.</p>
+      </div>
+      <div id="api-mode" hidden>
+        <details open><summary id="api-summary">Kết nối OpenAI API</summary>
+          <label id="api-key-label" for="api-key">OpenAI API key</label><input id="api-key" type="password" autocomplete="off" placeholder="Nhập key của nhà cung cấp đã chọn">
+          <p class="hint">Key chỉ giữ trong bộ nhớ khi bảng đang mở. Tạo key tại <a id="key-link" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI Platform</a>.</p>
+          <p class="notice">OpenAI API tính phí riêng. Gói ChatGPT Free / Plus / Pro không tự cấp hạn mức API.</p>
+          <label for="model">Model hỗ trợ hình ảnh</label><input id="model" value="gpt-4.1-mini" list="model-options" spellcheck="false">
+          <datalist id="model-options"></datalist>
+          <button id="load-models" class="secondary full" style="margin-top:10px">Tải danh sách model</button>
+          <p class="hint">Danh sách lấy trực tiếp bằng key của bạn. Chọn model hỗ trợ ảnh và JSON; việc có tên trong danh sách chưa bảo đảm model hỗ trợ tác vụ này.</p>
+        </details>
+        <label class="consent"><input id="consent" type="checkbox"><span id="consent-text">Tôi đồng ý gửi khung hình và ghi chú đến nhà cung cấp đã chọn. API có thể tính phí theo tài khoản của tôi.</span></label>
+        <button id="analyze" class="primary full" disabled>Phân tích & tạo prompt <span>↗</span></button>
+      </div>
       <button id="cancel" class="secondary full" hidden>Hủy yêu cầu AI</button>
-      <p class="hint">Không có key? Bạn vẫn có thể tải bảng khung hình để sử dụng với công cụ AI khác.</p>
     </section>
     <p id="status" role="status" aria-live="polite">Sẵn sàng. Chọn một video để bắt đầu.</p>
     <section id="results" class="card" hidden>
@@ -53,6 +69,6 @@
       <div id="result-body"></div>
     </section>
   </main>
-  <footer>Không gửi video đến máy chủ riêng. Chỉ gọi Gemini khi bạn bấm phân tích.</footer>
+  <footer>Không có máy chủ riêng. Bạn chọn gửi ảnh qua ChatGPT hoặc API của nhà cung cấp.</footer>
 </body>
 </html>

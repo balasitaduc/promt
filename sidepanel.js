@@ -1,4 +1,4 @@
-import { MAX_FILE_SIZE, sampleTimes, formatTime, analyze, toMarkdown, validateVideoUrl } from './core.js';
+import { MAX_FILE_SIZE, sampleTimes, formatTime, analyze, toMarkdown, validateVideoUrl, API_PROVIDERS, listModels, buildWebPrompt } from './core.js';
 
 const $ = id => document.getElementById(id);
 const video = $('preview');
@@ -13,9 +13,14 @@ function controls() {
   $('open-link').disabled = busy;
   $('video-url').disabled = busy;
   $('frame-count').disabled = busy;
+  $('provider').disabled = busy;
+  $('model').disabled = busy;
+  $('api-key').disabled = busy;
+  $('load-models').disabled = busy || !$('api-key').value.trim();
   $('extract').disabled = busy || !fileReady;
-  $('analyze').disabled = busy || !frames.length || !$('api-key').value.trim() || !$('consent').checked;
+  $('analyze').disabled = busy || $('provider').value === 'web' || !frames.length || !$('api-key').value.trim() || !$('consent').checked;
   $('export-frames').disabled = busy;
+  for (const id of ['web-frames', 'web-copy', 'web-prompt-file']) $(id).disabled = busy || !frames.length;
   video.controls = !busy;
 }
 function clearResults() {
@@ -28,6 +33,10 @@ function clearFrames() {
   $('frames').replaceChildren();
   $('export-frames').hidden = true;
   clearResults();
+  updateWebPrompt();
+}
+function updateWebPrompt() {
+  $('chatgpt-prompt').value = frames.length && meta ? buildWebPrompt(meta, frames, $('language').value, $('goal').value) : '';
 }
 function showFrames() {
   $('frames').replaceChildren(...frames.map(frame => {
@@ -42,6 +51,7 @@ function showFrames() {
   }));
   $('export-frames').hidden = !frames.length;
   $('video-info').textContent = `${meta.name} · ${meta.width} × ${meta.height} · ${meta.duration.toFixed(1)} giây · ${frames.length} khung hình`;
+  updateWebPrompt();
   controls();
 }
 function waitEvent(target, name, action, timeout = 12000) {
@@ -151,17 +161,50 @@ $('open-link').addEventListener('click', () => run(async () => {
 }));
 
 for (const id of ['api-key', 'consent']) $(id).addEventListener('input', controls);
+for (const id of ['goal', 'language']) $(id).addEventListener('input', updateWebPrompt);
+function selectProvider() {
+  const provider = $('provider').value;
+  const isWeb = provider === 'web';
+  $('web-mode').hidden = !isWeb; $('api-mode').hidden = isWeb;
+  $('api-key').value = ''; $('consent').checked = false;
+  $('model-options').replaceChildren();
+  if (!isWeb) {
+    const config = API_PROVIDERS[provider];
+    $('api-summary').textContent = `Kết nối ${config.label} API`;
+    $('api-key-label').textContent = `${config.label} API key`;
+    $('model').value = config.defaultModel;
+    $('key-link').href = config.keyUrl;
+    $('key-link').textContent = provider === 'openai' ? 'OpenAI Platform' : 'Google AI Studio';
+    $('consent-text').textContent = `Tôi đồng ý gửi các khung hình và ghi chú đến ${config.label} để phân tích. API có thể tính phí theo tài khoản của tôi.`;
+  }
+  controls();
+}
+$('provider').addEventListener('change', selectProvider);
+$('api-key').addEventListener('input', () => { $('model-options').replaceChildren(); });
+$('load-models').addEventListener('click', () => run(async () => {
+  status('Đang tải các model khả dụng cho API key của bạn…');
+  const models = await listModels({ provider: $('provider').value, key: $('api-key').value, signal: AbortSignal.timeout(20000) });
+  $('model-options').replaceChildren(...models.map(model => {
+    const option = document.createElement('option'); option.value = model; return option;
+  }));
+  if (!models.length) throw new Error('Không tìm thấy model phù hợp cho key này. Chuyển sang ChatGPT web hoặc kiểm tra quyền API.');
+  if (!models.includes($('model').value)) $('model').value = models[0];
+  status(`Đã tải ${models.length} model. Chọn trong ô model; kiểm tra model có hỗ trợ ảnh và JSON trước khi phân tích.`);
+}));
 $('analyze').addEventListener('click', () => run(async () => {
   if (!$('consent').checked) throw new Error('Cần đồng ý gửi khung hình trước khi phân tích.');
+  const provider = $('provider').value;
+  const providerName = API_PROVIDERS[provider]?.label;
+  if (!providerName) throw new Error('Chọn OpenAI API hoặc Gemini API để phân tích tự động.');
   clearResults();
   controller = new AbortController();
   $('cancel').hidden = false;
   const timeout = setTimeout(() => controller?.abort('timeout'), 120000);
-  status('Gemini đang phân tích các khung hình…');
+  status(`${providerName} đang phân tích các khung hình…`);
   // Keep result metadata consistent if controls are edited while the request is pending.
   const runMeta = { ...meta };
   try {
-    const output = await analyze({ key: $('api-key').value, model: $('model').value.trim(), frames, meta: runMeta, language: $('language').value, goal: $('goal').value, signal: controller.signal });
+    const output = await analyze({ provider, key: $('api-key').value, model: $('model').value.trim(), frames, meta: runMeta, language: $('language').value, goal: $('goal').value, signal: controller.signal });
     if (controller.signal.aborted) return;
     result = output;
     renderResult();
@@ -169,7 +212,7 @@ $('analyze').addEventListener('click', () => run(async () => {
     status('Đã tạo phân tích và prompt. Bạn có thể sao chép hoặc tải kết quả.');
   } catch (error) {
     if (controller.signal.aborted) status(controller.signal.reason === 'timeout' ? 'AI phản hồi quá thời gian 120 giây. Hãy thử lại với ít khung hình hơn.' : 'Đã hủy yêu cầu AI.');
-    else if (error instanceof TypeError) throw new Error('Không kết nối được Gemini. Kiểm tra Internet và quyền truy cập API.');
+    else if (error instanceof TypeError) throw new Error(`Không kết nối được ${providerName}. Kiểm tra Internet và quyền truy cập API.`);
     else throw error;
   } finally {
     clearTimeout(timeout); controller = null; $('cancel').hidden = true;
@@ -209,7 +252,9 @@ function download(blob, name) {
 $('copy-all').addEventListener('click', () => result && copy(toMarkdown(result, meta)));
 $('export-md').addEventListener('click', () => result && download(new Blob([toMarkdown(result, meta)], { type: 'text/markdown;charset=utf-8' }), 'video-prompt.md'));
 $('export-json').addEventListener('click', () => result && download(new Blob([JSON.stringify({ metadata: meta, analysis: result }, null, 2)], { type: 'application/json' }), 'video-prompt.json'));
-$('export-frames').addEventListener('click', () => run(async () => {
+$('web-copy').addEventListener('click', () => copy($('chatgpt-prompt').value));
+$('web-prompt-file').addEventListener('click', () => download(new Blob([$('chatgpt-prompt').value], { type: 'text/plain;charset=utf-8' }), 'chatgpt-instructions.txt'));
+async function exportFrames() {
   const canvas = document.createElement('canvas'), columns = 3, cellW = 320, cellH = 210;
   canvas.width = columns * cellW; canvas.height = Math.ceil(frames.length / columns) * cellH;
   const ctx = canvas.getContext('2d'); ctx.fillStyle = '#0b1018'; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -223,9 +268,11 @@ $('export-frames').addEventListener('click', () => run(async () => {
   const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
   if (!blob) throw new Error('Không tạo được bảng khung hình.');
   download(blob, 'video-frames.jpg'); status('Đã tải bảng khung hình.');
-}));
+}
+$('export-frames').addEventListener('click', () => run(exportFrames));
+$('web-frames').addEventListener('click', () => run(exportFrames));
 window.addEventListener('pagehide', () => {
   controller?.abort('closed'); $('api-key').value = '';
   if (objectUrl) URL.revokeObjectURL(objectUrl);
 });
-controls();
+selectProvider();

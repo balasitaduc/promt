@@ -1,4 +1,4 @@
-"""Chromium UI/content-script tests with mocked Chrome APIs and Gemini.
+"""Chromium UI/content-script tests with mocked Chrome, Gemini and OpenAI APIs.
 
 Cloud Chromium policy blocks unpacked extensions; this harness tests the actual
 page modules and injected content.js in real browser pages without changing it.
@@ -49,6 +49,9 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.goto('http://127.0.0.1:8765/sidepanel.html')
+    expect(page.locator('#provider')).to_have_value('web')
+    expect(page.locator('#api-mode')).to_be_hidden()
+    expect(page.locator('#open-chatgpt')).to_have_attribute('href', 'https://chatgpt.com/')
     # Generate a real two-second WebM, then remux to add seekable file metadata.
     encoded = page.evaluate('''async () => {
       const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180;
@@ -83,6 +86,18 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
         page.locator('#export-frames').click()
     assert Path(download.value.path()).stat().st_size > 1000
     print('PASS: actual UI modules load, local video seeks to six distinct frames, JPEG contact sheet exports')
+    expect(page.locator('#web-copy')).to_be_enabled()
+    expect(page.locator('#chatgpt-prompt')).to_have_value(__import__('re').compile('.*If no image is attached.*', __import__('re').DOTALL))
+    page.locator('#goal').fill('Create a perfume advertisement')
+    expect(page.locator('#chatgpt-prompt')).to_have_value(__import__('re').compile('.*perfume advertisement.*', __import__('re').DOTALL))
+    with page.expect_download() as download:
+        page.locator('#web-prompt-file').click()
+    assert 'perfume advertisement' in Path(download.value.path()).read_text()
+    assert download.value.suggested_filename == 'chatgpt-instructions.txt'
+    with page.expect_download() as download:
+        page.locator('#web-frames').click()
+    assert Path(download.value.path()).stat().st_size > 1000
+    print('PASS: default ChatGPT web needs no key, prepares timestamped instructions and exports actual images')
 
     # Open the user-provided URL shape with a controlled Instagram page.
     social_html = f'<html><head><title>Test Reel</title></head><body style="margin:0"><video width="320" height="180" controls autoplay muted src="data:video/webm;base64,{encoded}"></video></body></html>'
@@ -108,18 +123,33 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     print('PASS: Instagram link flow executes real content.js and returns six frames (mock Chrome APIs/page)')
 
     requests = []
+    missing_model = [True]
     def gemini(route):
         requests.append(route.request)
+        if ':generateContent' not in route.request.url:
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({'models': [{'name': 'models/gemini-test-flash', 'supportedGenerationMethods': ['generateContent']}]}))
+            return
+        if missing_model[0]:
+            route.fulfill(status=404, body='{}')
+            return
         route.fulfill(status=200, content_type='application/json', body=json.dumps({'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': json.dumps(OUTPUT)}]}}]}))
     context.route('https://generativelanguage.googleapis.com/**', gemini)
+    page.locator('#provider').select_option('gemini')
     page.locator('#api-key').fill('test-not-a-real-key')
     expect(page.locator('#analyze')).to_be_disabled()
     page.locator('#consent').check()
     page.locator('#analyze').click()
+    expect(page.locator('#status')).to_contain_text('Tải danh sách model')
+    expect(page.locator('#results')).to_be_hidden()
+    missing_model[0] = False
+    page.locator('#load-models').click()
+    expect(page.locator('#model')).to_have_value('gemini-test-flash')
+    expect(page.locator('#model-options option')).to_have_count(1)
+    page.locator('#analyze').click()
     expect(page.locator('#results')).to_be_visible(timeout=15000)
     expect(page.locator('#result-body')).to_contain_text(OUTPUT['masterPrompt'])
     assert page.locator('#result-body img').count() == 0, 'AI output must render as text, never HTML'
-    payload = json.loads(requests[0].post_data)
+    payload = json.loads(next(r.post_data for r in requests if r.post_data))
     assert sum('inlineData' in part for part in payload['contents'][0]['parts']) == 6
     assert 'test-not-a-real-key' not in requests[0].url
     for button, suffix in [('export-md', '.md'), ('export-json', '.json')]:
@@ -137,4 +167,30 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     expect(page.locator('#analyze')).to_be_enabled()
     assert not errors, errors
     print('PASS: quota error is actionable, stale results cleared, retry enabled, no browser script errors')
+    openai_requests = []
+    def openai(route):
+        openai_requests.append(route.request)
+        if route.request.url.endswith('/models'):
+            result = {'data': [{'id': 'gpt-4.1-mini'}, {'id': 'gpt-4o-audio-preview'}]}
+        else:
+            result = {'status': 'completed', 'output': [{'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(OUTPUT)}]}]}
+        route.fulfill(status=200, content_type='application/json', body=json.dumps(result))
+    context.route('https://api.openai.com/**', openai)
+    page.locator('#provider').select_option('openai')
+    expect(page.locator('#api-key')).to_have_value('')
+    expect(page.locator('#consent')).not_to_be_checked()
+    expect(page.locator('#model-options option')).to_have_count(0)
+    page.locator('#api-key').fill('test-openai-not-real')
+    page.locator('#load-models').click()
+    expect(page.locator('#model-options option')).to_have_count(1)
+    page.locator('#consent').check()
+    page.locator('#analyze').click()
+    expect(page.locator('#results')).to_be_visible()
+    expect(page.locator('#result-body')).to_contain_text(OUTPUT['masterPrompt'])
+    request = next(r for r in openai_requests if r.post_data)
+    content = json.loads(request.post_data)['input'][0]['content']
+    assert sum(part['type'] == 'input_image' for part in content) == 6
+    assert request.headers['authorization'] == 'Bearer test-openai-not-real'
+    assert not errors, errors
+    print('PASS: OpenAI model discovery and Responses image analysis work; provider switch clears keys and consent (mock API)')
     context.close()
