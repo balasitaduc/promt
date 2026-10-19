@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video → Prompt</title>
+  <link rel="stylesheet" href="sidepanel.css">
+  <script type="module" src="sidepanel.js"></script>
+</head>
+<body>
+  <header><span class="logo" aria-hidden="true">V↗P</span><div><h1>Video → Prompt</h1><p>Giải mã hình ảnh. Viết lại ý tưởng.</p></div><span class="badge">BETA</span></header>
+  <main>
+    <section class="intro"><span class="eyebrow">TỪ KHUNG HÌNH ĐẾN Ý TƯỞNG</span><h2>Một video.<br>Nhiều cách tái tạo.</h2><p>Phân tích chủ thể, ánh sáng, góc máy và phong cách để tạo prompt theo từng cảnh.</p></section>
+    <section class="card">
+      <h3><span class="step">01</span> Chọn video</h3>
+      <label for="video-url">Link video Facebook / Instagram</label>
+      <input id="video-url" type="url" placeholder="https://www.instagram.com/reels/…" autocomplete="off">
+      <button id="open-link" class="primary full" style="margin-top:10px">Mở link & lấy khung hình <span>↗</span></button>
+      <p class="hint">Trang được mở trong tab mới bằng phiên đăng nhập của bạn. Nếu được yêu cầu, đăng nhập và phát video rồi bấm “Lấy video từ tab đang mở”.</p>
+      <div class="divider"><span>hoặc dùng tệp của bạn</span></div>
+      <label class="drop" for="video-file"><span class="upload-icon">↑</span><strong>Chọn tệp video từ máy</strong><span>MP4, WebM, MOV tùy codec trình duyệt · tối đa 250 MB / 10 phút</span><input id="video-file" type="file" accept="video/*"></label>
+      <div class="divider"><span>hoặc</span></div>
+      <button id="capture-tab" class="secondary full">Lấy video từ tab đang mở</button>
+      <p class="hint">Hỗ trợ video Facebook / Instagram đang hiển thị. Nếu trang chặn đọc ảnh, bấm lại biểu tượng extension trên tab video để cấp quyền chụp vùng video rồi thử lại. Không hỗ trợ DRM hoặc video trong iframe.</p>
+      <video id="preview" controls playsinline hidden></video>
+      <p id="video-info" class="hint">Chưa chọn video.</p>
+      <div class="row"><label for="frame-count">Số khung hình</label><select id="frame-count"><option value="6">6 · Nhanh</option><option value="12" selected>12 · Cân bằng</option><option value="24">24 · Chi tiết</option></select></div>
+      <button id="extract" class="secondary full" disabled>Lấy khung hình từ tệp</button>
+      <progress id="progress" max="100" value="0" hidden aria-label="Tiến độ lấy khung hình"></progress>
+      <div id="frames" class="frames" aria-label="Khung hình đã chọn"></div>
+      <button id="export-frames" class="text-button" hidden>Tải bảng khung hình (.jpg)</button>
+    </section>
+    <section class="card">
+      <h3><span class="step">02</span> Thiết lập phân tích</h3>
+      <label for="goal">Ý tưởng muốn tái tạo <span class="muted">· tùy chọn</span></label>
+      <textarea id="goal" rows="2" maxlength="1000" placeholder="Ví dụ: Giữ phong cách điện ảnh, đổi chủ thể thành sản phẩm nước hoa…"></textarea>
+      <div class="row"><label for="language">Ngôn ngữ phân tích</label><select id="language"><option value="vi">Tiếng Việt</option><option value="en">English</option></select></div>
+      <details open><summary>Kết nối Gemini</summary>
+        <label for="api-key">Gemini API key</label><input id="api-key" type="password" autocomplete="off" placeholder="Nhập key của bạn">
+        <p class="hint">Key chỉ giữ trong bộ nhớ khi bảng đang mở, không lưu vào ổ đĩa. Bạn có thể tạo key tại <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.</p>
+        <label for="model">Model hỗ trợ hình ảnh</label><input id="model" value="gemini-2.5-flash" placeholder="gemini-2.5-flash" spellcheck="false">
+      </details>
+      <label class="consent"><input id="consent" type="checkbox"><span>Tôi đồng ý gửi các khung hình đã chọn và ghi chú đến Google Gemini để phân tích. API có thể tính phí theo tài khoản của tôi.</span></label>
+      <button id="analyze" class="primary full" disabled>Phân tích & tạo prompt <span>↗</span></button>
+      <button id="cancel" class="secondary full" hidden>Hủy yêu cầu AI</button>
+      <p class="hint">Không có key? Bạn vẫn có thể tải bảng khung hình để sử dụng với công cụ AI khác.</p>
+    </section>
+    <p id="status" role="status" aria-live="polite">Sẵn sàng. Chọn một video để bắt đầu.</p>
+    <section id="results" class="card" hidden>
+      <h3><span class="step">03</span> Phân tích & prompt</h3>
+      <p class="notice">Prompt được suy luận từ ảnh mẫu, không phải prompt gốc. Mốc cảnh và chuyển động là ước lượng. Không phân tích âm thanh.</p>
+      <div class="toolbar"><button id="copy-all" class="secondary">Sao chép tất cả</button><button id="export-md" class="secondary">Tải .md</button><button id="export-json" class="secondary">Tải .json</button></div>
+      <div id="result-body"></div>
+    </section>
+  </main>
+  <footer>Không gửi video đến máy chủ riêng. Chỉ gọi Gemini khi bạn bấm phân tích.</footer>
+</body>
+</html>
