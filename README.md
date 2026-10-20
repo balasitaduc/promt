@@ -2,7 +2,7 @@
 
 Extension Chrome / Edge Manifest V3 phân tích khung hình video Facebook, Instagram hoặc tệp video trên máy. Giao diện tối xanh cyan và báo cáo chuyên sâu theo từng cảnh: nguồn video, 3 chế độ, trạng thái/hiệu năng, báo cáo 12 tab, lịch sử, cài đặt và xuất tệp. Không có máy chủ riêng hoặc tài khoản extension.
 
-**Tạm dừng phát hành ZIP:** đang xác minh báo cáo “phát hiện virus”; chưa biết tệp bị chặn và chưa có kết quả quét antivirus. Không bỏ qua cảnh báo hoặc thêm ngoại lệ. Xem [kết quả kiểm tra và thông tin cần đối chiếu](SECURITY.md).
+**Tạm dừng phát hành ZIP:** Defender của người dùng báo `Trojan:Script/Ulthar.A!ml` tại `sidepanel.html` trong ZIP. Chưa kết luận mã độc hay báo nhầm và chưa có kết quả quét antivirus độc lập. Không bỏ qua cảnh báo hoặc thêm ngoại lệ. Xem [kết quả kiểm tra và thông tin cần đối chiếu](SECURITY.md).
 
 ## Cài / cập nhật
 
