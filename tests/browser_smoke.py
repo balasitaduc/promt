@@ -38,7 +38,7 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     def serve_source(route):
         name = route.request.url.split('/')[-1] or 'sidepanel.html'
         path = ROOT / name
-        if name not in ['sidepanel.html', 'sidepanel.css', 'sidepanel.js', 'core.js', 'deep.js', 'local.js', 'reports.js', 'storage.js']:
+        if name not in ['sidepanel.html', 'sidepanel.css', 'sidepanel.js', 'core.js', 'deep.js', 'local.js', 'reports.js', 'storage.js', 'vision.js', 'vision-config.js']:
             route.fulfill(status=404); return
         content_type = 'text/javascript' if name.endswith('.js') else 'text/css' if name.endswith('.css') else 'text/html'
         route.fulfill(status=200, content_type=content_type, body=path.read_bytes())
@@ -50,6 +50,8 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     expect(page.locator('[data-engine=local]')).to_have_attribute('aria-checked', 'true')
     expect(page.locator('#report-tabs button')).to_have_count(12)
     expect(page.locator('#api-mode')).to_be_hidden()
+    page.locator('#local-vision').uncheck()
+    expect(page.locator('#engine-status')).to_contain_text('Chỉ đo pixel')
     page.locator('#settings-open').click()
     page.locator('#settings-frames').fill('12')
     page.locator('#settings-auto').uncheck()
@@ -227,6 +229,58 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
         except Exception: pass  # The browser may already have aborted the request.
     context.unroute('https://generativelanguage.googleapis.com/**')
     print('PASS: OpenAI/Gemini model recovery, actual image payloads, consent, provider key isolation and quota errors (mock APIs)')
+
+    hf_requests=[]
+    def hf_api(route):
+        request=route.request
+        if request.url.endswith('/models'):
+            value={'data':[{'id':'Qwen/test-vision','architecture':{'input_modalities':['text','image'],'output_modalities':['text']}},{'id':'text-only','architecture':{'input_modalities':['text'],'output_modalities':['text']}}]}
+        else:
+            payload=json.loads(request.post_data);hf_requests.append(payload)
+            value=json.loads(json.dumps(OUTPUT));content=payload['messages'][0]['content'];instruction=content[0]['text']
+            focus=re.search(r'covering ONLY ([\d.]+)\.\.([\d.]+) seconds',instruction)
+            if focus:
+                start,end=map(float,focus.groups());timestamp=float(next(p['text'].split(' at ')[1].split(' seconds')[0] for p in content[1:] if p.get('type')=='text'))
+                value['scenes'][0].update(start=start,end=end)
+                value['deep']['sceneDetails'][0]['evidence'][0]['timestamp']=timestamp
+                value['deep']['characters'][0]['evidence'][0]['timestamp']=timestamp
+                value['deep']['characters'][0]['referenceTimestamp']=timestamp
+            value={'choices':[{'finish_reason':'stop','message':{'content':json.dumps(value)}}]}
+        route.fulfill(status=200,content_type='application/json',body=json.dumps(value))
+    context.route('https://router.huggingface.co/**',hf_api)
+    page.locator('#provider').select_option('huggingface')
+    expect(page.locator('#api-key')).to_have_value('')
+    expect(page.locator('#model')).to_have_value('')
+    expect(page.locator('#provider-hint')).to_contain_text('không có credit')
+    page.locator('#api-key').fill('test-hf-not-real');page.locator('#load-models').click()
+    expect(page.locator('#model')).to_have_value('Qwen/test-vision')
+    expect(page.locator('#model-options option')).to_have_count(1)
+    page.locator('#deep-passes').check();page.locator('#consent').check();page.locator('#analyze').click()
+    expect(page.locator('#state')).to_have_text('COMPLETED',timeout=20000)
+    stored=page.evaluate('JSON.parse(localStorage.getItem("video_prompt_v2")).history[0]')
+    assert stored['analysis']['analysisPasses']['sceneCalls']>=2
+    assert len(hf_requests)==stored['analysis']['analysisPasses']['sceneCalls']+1
+    assert 'Earlier scene-level AI observations' in hf_requests[-1]['messages'][0]['content'][0]['text']
+    assert 'test-hf-not-real' not in json.dumps(stored)
+    local_requests=[]
+    def ollama_api(route):
+        local_requests.append(route.request)
+        if route.request.url.endswith('/tags'):value={'models':[{'name':'qwen3-vl:4b'},{'name':'text-only'}]}
+        elif route.request.url.endswith('/show'):value={'capabilities':['vision'] if json.loads(route.request.post_data)['model']=='qwen3-vl:4b' else ['completion']}
+        else:value={'done':True,'done_reason':'stop','message':{'content':json.dumps(OUTPUT)}}
+        route.fulfill(status=200,content_type='application/json',body=json.dumps(value))
+    context.route('http://localhost:11434/**',ollama_api)
+    page.locator('#provider').select_option('ollama')
+    expect(page.locator('#api-key')).to_be_hidden();expect(page.locator('#load-models')).to_be_enabled()
+    expect(page.locator('#consent')).not_to_be_checked()
+    page.locator('#deep-passes').uncheck();page.locator('#load-models').click()
+    expect(page.locator('#model')).to_have_value('qwen3-vl:4b')
+    page.locator('#consent').check();page.locator('#analyze').click()
+    expect(page.locator('#state')).to_have_text('COMPLETED')
+    request=next(r for r in local_requests if r.url.endswith('/chat'))
+    assert len(json.loads(request.post_data)['messages'][0]['images'])==12
+    assert 'authorization' not in request.headers
+    print('PASS: HF/Ollama provider UI, actual image requests, Vision filtering and scene-then-synthesis orchestration (mock inference)')
 
     social_html = f'<html><head><title>Test Reel</title></head><body style="margin:0"><video width="320" height="180" controls muted src="data:video/webm;base64,{encoded}"></video><video width="320" height="180" controls muted src="data:video/webm;base64,{encoded}"></video></body></html>'
     context.route('https://www.instagram.com/reels/DepGcNqih2d/',lambda route:route.fulfill(status=200,content_type='text/html',body=social_html))

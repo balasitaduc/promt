@@ -1,4 +1,4 @@
-export const DEFAULT_SETTINGS = { language: 'both', maxFrames: 36, autoDetect: true, cache: true, theme: 'dark' };
+export const DEFAULT_SETTINGS = { language: 'both', maxFrames: 36, autoDetect: true, cache: true, theme: 'dark', localVision: true };
 const KEY = 'video_prompt_v2';
 const EMPTY = () => ({ settings: { ...DEFAULT_SETTINGS }, history: [], cache: {} });
 
@@ -6,7 +6,7 @@ export function validateSettings(value) {
   const maxFrames = Number(value.maxFrames);
   if (!Number.isInteger(maxFrames) || maxFrames < 12 || maxFrames > 60) throw new Error('Số keyframe phải là số nguyên từ 12 đến 60.');
   if (!['both', 'vi', 'en'].includes(value.language) || !['dark', 'light'].includes(value.theme)) throw new Error('Cài đặt không hợp lệ.');
-  return { language: value.language, maxFrames, autoDetect: !!value.autoDetect, cache: !!value.cache, theme: value.theme };
+  return { language: value.language, maxFrames, autoDetect: !!value.autoDetect, cache: !!value.cache, theme: value.theme, localVision: value.localVision !== false };
 }
 
 export class Repository {

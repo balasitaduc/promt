@@ -1,11 +1,14 @@
-import { MAX_FILE_SIZE, sampleTimes, formatTime, analyze, validateVideoUrl, API_PROVIDERS, listModels, buildInstruction, representativeFrames, parseAnalysis } from './core.js';
+import { MAX_FILE_SIZE, sampleTimes, formatTime, analyze, analyzeInDepth, validateVideoUrl, API_PROVIDERS, listModels, buildInstruction, representativeFrames, parseAnalysis } from './core.js';
 import { analyzeLocal } from './local.js';
 import { Repository, browserAdapter, fingerprint } from './storage.js';
 import { REPORT_TABS, renderReport, reportMarkdown } from './reports.js';
 import { attachMeasurements, verifyFrameEvidence } from './deep.js';
+import { LocalVision, visionSceneInputs, applyCaptions } from './vision.js';
+import { VISION_MODEL } from './vision-config.js';
 
 const $ = id => document.getElementById(id);
 const video = $('preview'), repository = new Repository(browserAdapter());
+const localVision = new LocalVision();
 const state = { source: 'tab', engine: 'local', busy: false, scanning: false, fileReady: false, objectUrl: null, meta: null, candidates: [], tabId: null, selectedId: '', frames: [], frameKey: '', sourceKey: '', report: null, reportTab: 0, selectedScene: 0, localAnalysis: null, persistenceError: null, controller: null };
 const element = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
 function status(message, error = false) { $('status').textContent = message; $('status').classList.toggle('error', error); }
@@ -19,13 +22,14 @@ function clearFrames() {
 }
 function resetReport() { state.report = null; state.selectedScene = 0; state.persistenceError = null; $('run-id').textContent = 'Chưa tạo báo cáo'; render(); }
 function controls() {
-  for (const id of ['source-tab', 'source-link', 'source-file', 'video-file', 'open-link', 'video-url', 'video-select', 'capture-tab', 'quality', 'provider', 'api-key', 'model', 'goal', 'settings-open', 'history-open', 'release-memory', 'clear-cache']) $(id).disabled = state.busy;
+  for (const id of ['source-tab', 'source-link', 'source-file', 'video-file', 'open-link', 'video-url', 'video-select', 'capture-tab', 'quality', 'provider', 'api-key', 'model', 'goal', 'settings-open', 'history-open', 'release-memory', 'clear-cache', 'local-vision', 'clear-model-cache', 'deep-passes']) $(id).disabled = state.busy;
   document.querySelectorAll('[data-engine]').forEach(button => { button.disabled = state.busy; });
   const canAnalyze = state.source !== 'history' && (state.source !== 'file' || state.fileReady);
-  const apiReady = state.engine !== 'cloud' || ($('api-key').value.trim() && $('model').value.trim() && $('consent').checked);
+  const requiresKey = API_PROVIDERS[$('provider').value].requiresKey !== false;
+  const apiReady = state.engine !== 'cloud' || ((!requiresKey || $('api-key').value.trim()) && $('model').value.trim() && $('consent').checked);
   $('analyze').disabled = state.busy || !canAnalyze || !apiReady;
   $('reanalyze').disabled = $('analyze').disabled;
-  $('load-models').disabled = state.busy || !$('api-key').value.trim();
+  $('load-models').disabled = state.busy || (requiresKey && !$('api-key').value.trim());
   for (const id of ['web-frames', 'web-copy', 'web-prompt-file', 'export-frames']) $(id).disabled = state.busy || !state.frames.length;
   $('import-result').disabled = state.busy || !state.frames.length || !$('import-json').value.trim();
   for (const id of ['copy-result', 'export-open']) $(id).disabled = !state.report || state.busy;
@@ -36,7 +40,7 @@ async function run(task) {
   if (state.busy) return;
   state.busy = true; controls();
   try { await task(); }
-  catch (error) { $('state').textContent = error.name === 'AbortError' ? 'CANCELLED' : 'ERROR'; status(error.message || 'Có lỗi xảy ra. Hãy thử lại.', true); }
+  catch (error) { $('state').textContent = error.name === 'AbortError' ? 'CANCELLED' : error.code?.startsWith('MODEL_') ? 'MODEL_ERROR' : 'ERROR'; status(error.message || 'Có lỗi xảy ra. Hãy thử lại.', true); if(error.code?.startsWith('MODEL_'))$('engine-status').textContent=error.message; }
   finally { state.busy = false; controls(); }
 }
 function updateMeta() {
@@ -70,22 +74,29 @@ function setEngine(engine) {
   state.engine = engine;
   document.querySelectorAll('[data-engine]').forEach(button => { const selected = button.dataset.engine === engine; button.classList.toggle('selected', selected); button.setAttribute('aria-checked', String(selected)); });
   $('engine-badge').textContent = engine === 'local' ? 'LOCAL — MIỄN PHÍ' : engine === 'web' ? 'WEB AI — KHÔNG API' : 'CLOUD AI';
-  $('web-mode').hidden = engine !== 'web'; $('api-mode').hidden = engine !== 'cloud';
-  $('engine-status').textContent = engine === 'local' ? 'Sẵn sàng phân tích pixel cục bộ. Không tải mô hình Vision.' : engine === 'web' ? 'Chuẩn bị ảnh + hướng dẫn; nhập JSON để tạo báo cáo AI.' : 'Chọn nhà cung cấp, model hỗ trợ ảnh và nhập API key.';
+  $('web-mode').hidden = engine !== 'web'; $('api-mode').hidden = engine !== 'cloud'; $('local-mode').hidden = engine !== 'local';
+  $('engine-status').textContent = engine === 'local' ? ($('local-vision').checked ? 'Caption AI cục bộ: tải model lần đầu khi bấm phân tích. Chưa chạy suy luận.' : 'Chỉ đo pixel; đã tắt caption AI.') : engine === 'web' ? 'Chuẩn bị ảnh + hướng dẫn; nhập JSON để tạo báo cáo AI.' : 'Chọn runtime, tải danh sách model hỗ trợ ảnh và cấu hình kết nối.';
   updateWebPrompt(); controls();
 }
 document.querySelectorAll('[data-engine]').forEach(button => button.addEventListener('click', () => setEngine(button.dataset.engine)));
 function selectProvider() {
   const config = API_PROVIDERS[$('provider').value];
   $('api-key').value = ''; $('consent').checked = false; $('model-options').replaceChildren();
-  $('model').value = config.defaultModel; $('api-key-label').textContent = `${config.label} API key`;
+  $('model').value = config.defaultModel; $('model').placeholder = 'Bấm Tải danh sách model hỗ trợ ảnh'; $('api-key-label').textContent = config.requiresKey === false ? 'Ollama không cần API key' : `${config.label} ${$('provider').value==='huggingface'?'token (quyền Inference Providers)':'API key'}`;
+  $('api-key').hidden = config.requiresKey === false;
   $('key-link').href = config.keyUrl; $('key-link').textContent = config.label;
-  $('consent-text').textContent = `Tôi đồng ý gửi ảnh và ghi chú đến ${config.label}. API có thể tính phí.`; controls();
+  $('provider-hint').textContent = $('provider').value==='huggingface' ? 'HF Free tải được model mở, nhưng API không có credit miễn phí hằng tháng theo tài liệu hiện tại. Token cần quyền Inference Providers. Danh sách chỉ lấy model có khai báo hỗ trợ ảnh; khả năng nhiều ảnh/JSON còn tùy provider. Xem phí tại Hugging Face Billing.' : $('provider').value==='ollama' ? 'Cần cài và chạy Ollama trên máy này, tải model Vision (ví dụ qwen3-vl:4b hoặc :8b). Extension kết nối localhost:11434, không cần HF token/phí API. Tốc độ và bộ nhớ tùy model/phần cứng. Xem README nếu Chrome chặn kết nối.' : 'API tính phí riêng với gói ChatGPT. Tối đa 24 ảnh được gửi; báo cáo chuyên sâu có thể dùng nhiều token. Danh sách không bảo đảm model nào cũng hỗ trợ ảnh/JSON.';
+  $('consent-text').textContent = config.requiresKey===false ? 'Tôi đồng ý gửi ảnh và ghi chú đến Ollama cục bộ trên máy này.' : `Tôi đồng ý gửi ảnh và ghi chú đến ${config.label}. API có thể tính phí.`; controls();
 }
 $('provider').addEventListener('change', selectProvider);
 for (const id of ['api-key', 'consent', 'model', 'import-json']) $(id).addEventListener('input', controls);
 $('api-key').addEventListener('input', () => $('model-options').replaceChildren());
 $('goal').addEventListener('input', updateWebPrompt);
+$('local-vision').addEventListener('change', async()=>{
+  try { await repository.saveSettings({...settings(),localVision:$('local-vision').checked});setEngine(state.engine); }
+  catch(error){$('local-vision').checked=settings().localVision;status(error.message,true);}
+});
+$('clear-model-cache').addEventListener('click',()=>run(async()=>{await localVision.clearCache();$('engine-status').textContent='Đã xóa cache trọng số model. Lần chạy caption tiếp theo sẽ tải lại.';status('Đã xóa cache model; lịch sử và cache báo cáo vẫn được giữ.');}));
 $('load-models').addEventListener('click', () => run(async () => {
   status('Đang tải danh sách model bằng key của bạn…');
   const models = await listModels({ provider: $('provider').value, key: $('api-key').value, signal: AbortSignal.timeout(20000) });
@@ -229,7 +240,7 @@ async function startAnalysis(force = false) {
     let timeout;
     try {
       await extractFrames(force); checkCancelled();
-      const options = { version: 3, engine: state.engine, provider: state.engine === 'cloud' ? $('provider').value : null, model: state.engine === 'cloud' ? $('model').value : null, language: language(), goal: $('goal').value };
+      const options = { version: 4, engine: state.engine, localVision: state.engine==='local'&&$('local-vision').checked?VISION_MODEL:null, deepPasses:state.engine==='cloud'&&$('deep-passes').checked, provider: state.engine === 'cloud' ? $('provider').value : null, model: state.engine === 'cloud' ? $('model').value : null, language: language(), goal: $('goal').value };
       const cacheKey = await fingerprint(state.frames, state.meta, options);
       const cached = !force && settings().cache ? repository.state.cache[cacheKey] : null;
       if (cached && state.engine !== 'web') { state.report = cached; state.localAnalysis=cached.analysis; $('run-id').textContent = cached.id; $('state').textContent = 'CACHED'; progress(100, 'Đã đọc báo cáo từ cache'); render(); status('Đã dùng kết quả cache. Bấm Phân tích lại để chạy mới.'); return; }
@@ -247,24 +258,36 @@ async function startAnalysis(force = false) {
       if (state.engine === 'local') {
         engine = 'Local · đo pixel, không có mô hình Vision';
         analysis = state.localAnalysis;
+        if($('local-vision').checked) {
+          $('state').textContent='MODEL_LOADING';
+          const result=await localVision.caption(visionSceneInputs(analysis,state.frames),{signal:state.controller.signal,onProgress:event=>{
+            $('engine-status').textContent=event.message;
+            if(event.stage==='inference'){$('state').textContent='INFERENCING';progress(75+(event.current-1)/event.total*20,event.message);}
+            else progress(72,event.message);
+          }});
+          analysis=applyCaptions(analysis,result,state.meta);engine=`Local Vision caption · ${result.model} · WASM · ${result.captions.length} ảnh cảnh`;
+        }
       } else {
         if (!$('consent').checked) throw new Error('Cần đồng ý gửi ảnh trước khi gọi API.');
-        const selected = representativeFrames(state.frames), provider = $('provider').value;
+        const selected = representativeFrames(state.frames), provider = $('provider').value, deepPasses=$('deep-passes').checked;
         engine = `${API_PROVIDERS[provider].label} API · ${$('model').value} · ${selected.length}/${state.frames.length} ảnh`;
         progress(60, `${API_PROVIDERS[provider].label} đang phân tích…`);
-        timeout = setTimeout(() => state.controller?.abort('timeout'), 120000);
+        timeout = setTimeout(() => state.controller?.abort('timeout'), provider==='ollama'||deepPasses?600000:180000);
         const measurements=state.localAnalysis.deep.sceneDetails.map((scene,i)=>({start:state.localAnalysis.scenes[i].start,end:state.localAnalysis.scenes[i].end,measurements:scene.measurements}));
-        analysis = await analyze({ provider, key: $('api-key').value, model: $('model').value.trim(), frames: selected, meta: {...state.meta,measurements}, language: language(), goal: $('goal').value, signal: state.controller.signal });
+        const request={ provider, key: $('api-key').value, model: $('model').value.trim(), frames:deepPasses?state.frames:selected, meta: {...state.meta,measurements}, language: language(), goal: $('goal').value, signal: state.controller.signal };
+        analysis = deepPasses ? await analyzeInDepth({...request,onProgress:event=>{const message=event.stage==='scene'?`Phân tích riêng cảnh ${event.current}/${event.total} · ${event.frameCount} ảnh`:'Tổng hợp các cảnh, nhân vật và prompt';progress(70+(event.stage==='scene'?(event.current-1)/(event.total+1):.9)*25,message);$('engine-status').textContent=message;}}) : await analyze(request);
+        if(deepPasses)engine+=` · ${analysis.analysisPasses.sceneCalls} lượt cảnh + 1 tổng hợp`;
         analysis=attachMeasurements(analysis,state.localAnalysis,state.meta);
       }
       checkCancelled(); const elapsed = Math.round(performance.now() - started);
       await saveReport(analysis, engine, elapsed, cacheKey);
       $('state').textContent = 'COMPLETED'; progress(100, 'Tạo báo cáo'); $('engine-status').textContent = `Hoàn tất: ${engine}. ${analysis.scenes.length} cảnh ước lượng.`;
       $('performance').textContent = `Tổng thời gian: ${elapsed} ms${performance.memory ? ` · JS heap hiện tại: ~${(performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1)} MB (không phải tổng RAM)` : ' · Trình duyệt không cung cấp số đo bộ nhớ'}`;
-      status(state.persistenceError?`Đã tạo báo cáo, nhưng chưa lưu được lịch sử/cache: ${state.persistenceError}`:'Đã tạo báo cáo chuyên sâu. Chọn cảnh trên timeline, xem 22 trường hoặc copy prompt VI/EN.',!!state.persistenceError);
+      const done=state.engine==='local' ? (analysis.localVision?'Đã tạo caption keyframe và báo cáo số đo. Các mục camera/diễn biến chưa được xác minh; dùng Web AI hoặc model Vision chuyên sâu khi cần.':'Đã tạo báo cáo số đo pixel và mẫu prompt. Chưa nhận diện nội dung; bật caption hoặc chọn Web AI/Vision chuyên sâu.') : 'Đã tạo báo cáo AI. Chọn cảnh trên timeline, đối chiếu bằng chứng và xem prompt VI/EN.';
+      status(state.persistenceError?`Đã tạo báo cáo, nhưng chưa lưu được lịch sử/cache: ${state.persistenceError}`:done,!!state.persistenceError);
     } catch (error) {
       if (state.controller?.signal.aborted) {
-        const cancelled = new Error(state.controller.signal.reason === 'timeout' ? 'API quá thời gian 120 giây. Thử ít ảnh hơn hoặc đổi model.' : 'Đã hủy phân tích.');
+        const cancelled = new Error(state.controller.signal.reason === 'timeout' ? 'Quá thời gian chờ runtime AI (1 lượt API 3 phút; Ollama/nhiều lượt 10 phút). Thử ít ảnh hơn hoặc đổi model.' : 'Đã hủy phân tích.');
         cancelled.name = 'AbortError'; throw cancelled;
       }
       throw error;
@@ -314,7 +337,7 @@ async function exportFrames() {
 for (const id of ['export-frames', 'web-frames']) $(id).addEventListener('click', () => run(exportFrames));
 $('web-copy').addEventListener('click', () => copy($('chatgpt-prompt').value));
 $('web-prompt-file').addEventListener('click', () => download(new Blob([$('chatgpt-prompt').value], { type: 'text/plain;charset=utf-8' }), 'chatgpt-instructions.txt'));
-$('release-memory').addEventListener('click', () => { clearFrames(); render(); video.pause(); video.removeAttribute('src'); video.load(); video.hidden = true; $('video-file').value = ''; state.fileReady = false; if (state.objectUrl) URL.revokeObjectURL(state.objectUrl); state.objectUrl = null; controls(); status('Đã bỏ tham chiếu khung hình và tệp video. Báo cáo vẫn có thể xuất. Trình duyệt tự quyết định thời điểm thu hồi bộ nhớ.'); });
+$('release-memory').addEventListener('click', () => { localVision.dispose(); clearFrames(); render(); video.pause(); video.removeAttribute('src'); video.load(); video.hidden = true; $('video-file').value = ''; state.fileReady = false; if (state.objectUrl) URL.revokeObjectURL(state.objectUrl); state.objectUrl = null; controls(); status('Đã dừng worker model và bỏ tham chiếu khung hình/tệp. Báo cáo vẫn có thể xuất; cache trọng số tải xuống vẫn giữ. Trình duyệt quyết định thời điểm thu hồi RAM/WASM.'); });
 $('clear-cache').addEventListener('click', () => run(async () => { await repository.clearCache(); status('Đã xóa cache kết quả; lịch sử vẫn được giữ.'); }));
 for (const button of document.querySelectorAll('[data-close]')) button.addEventListener('click', () => $(button.dataset.close).close());
 $('settings-open').addEventListener('click', () => {
@@ -339,8 +362,8 @@ function renderHistory() {
 $('history-open').addEventListener('click', () => { renderHistory(); $('history-dialog').showModal(); });
 $('clear-history').addEventListener('click', async () => { try { await repository.clearHistory(); renderHistory(); status('Đã xóa lịch sử. Cache riêng có thể xóa bằng nút Xóa cache.'); } catch (error) { status(error.message, true); } });
 globalThis.chrome?.runtime?.onMessage?.addListener((message, sender) => { if (message.type === 'VP_PROGRESS' && state.busy && sender?.tab?.id === state.tabId) progress(message.current / message.total * 45, `Trích xuất khung hình ${message.current}/${message.total}`); });
-window.addEventListener('pagehide', () => { state.controller?.abort('closed'); $('api-key').value = ''; if (state.objectUrl) URL.revokeObjectURL(state.objectUrl); });
+window.addEventListener('pagehide', () => { state.controller?.abort('closed');localVision.dispose(); $('api-key').value = ''; if (state.objectUrl) URL.revokeObjectURL(state.objectUrl); });
 try { await repository.load(); document.documentElement.dataset.theme = settings().theme; } catch (error) { status(`Không đọc được cài đặt lưu: ${error.message}`, true); }
-selectProvider(); render(); controls();
+$('local-vision').checked=settings().localVision;selectProvider(); setEngine('local');render(); controls();
 if (settings().autoDetect) scan(true).catch(() => {});
 setInterval(() => { if (settings().autoDetect && !document.hidden) scan(true).catch(() => {}); }, 4000);

@@ -1,13 +1,42 @@
 {
   "manifest_version": 3,
   "name": "MD Phân Tích AI — Video Prompt",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "minimum_chrome_version": "116",
   "description": "Phân tích khung hình video và tạo prompt tái tạo theo từng cảnh.",
-  "permissions": ["activeTab", "scripting", "sidePanel", "storage"],
-  "host_permissions": ["https://api.openai.com/*", "https://generativelanguage.googleapis.com/*", "https://www.instagram.com/*", "https://instagram.com/*", "https://www.facebook.com/*", "https://facebook.com/*", "https://m.facebook.com/*", "https://fb.watch/*", "https://www.fb.watch/*"],
-  "action": {"default_title": "Mở Video → Prompt"},
-  "background": {"service_worker": "background.js", "type": "module"},
-  "side_panel": {"default_path": "sidepanel.html"},
-  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://generativelanguage.googleapis.com https://api.openai.com; img-src 'self' data: blob:; media-src 'self' blob:;"}
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "sidePanel",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.openai.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://www.instagram.com/*",
+    "https://instagram.com/*",
+    "https://www.facebook.com/*",
+    "https://facebook.com/*",
+    "https://m.facebook.com/*",
+    "https://fb.watch/*",
+    "https://www.fb.watch/*",
+    "https://huggingface.co/*",
+    "https://*.hf.co/*",
+    "https://*.huggingface.co/*",
+    "http://localhost:11434/*"
+  ],
+  "action": {
+    "default_title": "Mở Video → Prompt"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; object-src 'self'; connect-src 'self' https://generativelanguage.googleapis.com https://api.openai.com https://huggingface.co https://*.hf.co https://*.huggingface.co http://localhost:11434; img-src 'self' data: blob:; media-src 'self' blob:;"
+  },
+  "version_name": "3.1.0 — Vision thử nghiệm"
 }

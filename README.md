@@ -1,4 +1,4 @@
-# MD Phân Tích AI — Video Prompt · v3.0.0
+# MD Phân Tích AI — Video Prompt · v3.1.0 (tích hợp Vision thử nghiệm)
 
 Extension Chrome / Edge Manifest V3 phân tích khung hình video Facebook, Instagram hoặc tệp video trên máy. Giao diện tối xanh cyan và báo cáo chuyên sâu theo từng cảnh: nguồn video, 3 chế độ, trạng thái/hiệu năng, báo cáo 12 tab, lịch sử, cài đặt và xuất tệp. Không có máy chủ riêng hoặc tài khoản extension.
 
@@ -10,6 +10,16 @@ Extension Chrome / Edge Manifest V3 phân tích khung hình video Facebook, Inst
 2. Vào `chrome://extensions` (Edge: `edge://extensions`), bật **Chế độ nhà phát triển**, chọn **Tải tiện ích đã giải nén / Load unpacked**, trỏ đến thư mục có `manifest.json`.
 3. Với bản cũ: giải nén đè vào thư mục đang cài rồi bấm **Tải lại / Reload**, đóng và mở lại bảng bên cạnh. Nếu dùng thư mục mới, gỡ bản cũ trước khi cài để tránh hai extension trùng nhau.
 4. Bản 2.0 bổ sung quyền `storage` để lưu cài đặt/lịch sử/cache. Chrome có thể yêu cầu chấp nhận quyền sau cập nhật. Ghim và bấm biểu tượng extension để mở bảng.
+
+## Mới trong 3.1: model thật và lựa chọn mạnh hơn
+
+- **Caption cục bộ**: Transformers.js + ONNX Runtime WASM đóng gói sẵn, model `Xenova/vit-gpt2-image-captioning` q8 tải từ Hugging Face lần đầu (~237 MB theo bản gốc, chưa xác minh kích thước tải thực tế). Ảnh được suy luận trong worker, không tải ảnh lên Hub. Có tiến độ, hủy, giải phóng worker và xóa cache trọng số riêng. Model này nhỏ, chỉ mô tả keyframe bằng tiếng Anh; không đủ cho phân tích video sâu. Có thể tắt để chỉ đo pixel.
+- **Hugging Face Inference Providers**: token chỉ giữ trong phiên; lấy danh sách model khai báo nhận ảnh/trả text từ HF Router. Không gắn cứng một tên model rồi giả định tài khoản nào cũng chạy được. Ảnh được gửi đến HF/provider khi đồng ý.
+- **Ollama trên máy**: lấy model đã cài, kiểm tra capability `vision`, dùng `/api/chat` native với ảnh và JSON. Không cần key hay phí API; cần tự cài Ollama/model và đủ RAM/GPU. Chế độ này bỏ qua model có nhãn `cloud` hoặc metadata remote. Xem [hướng dẫn chọn model](MODELS.md).
+- **Từng cảnh → tổng hợp**: tùy chọn ở chế độ 3. Tối đa 12 lượt phân tích nhóm cảnh (12 ảnh/lượt) và 1 lượt tổng hợp (24 ảnh). Các đoạn rất nhiều cảnh được gộp thành tối đa 12 khoảng; không cam kết gửi toàn bộ 60 ảnh khi một khoảng có trên 12 ảnh. Tổng hợp nhận các mô tả cảnh và ảnh tham chiếu, rồi tạo 12 phần báo cáo. Tốn thêm thời gian/tài nguyên/phí; mặc định tắt.
+- **Trạng thái trung thực**: lỗi model là `MODEL_ERROR`, không âm thầm biến phép đo pixel thành kết quả Vision. Cache v3 không dùng nhầm làm cache Vision v3.1.
+
+**Kiểm chứng hiện tại:** 32 kiểm thử Node; browser smoke với video thật tổng hợp và phản hồi AI giả lập; ONNX thực thi phép cộng thật bằng WASM dưới CSP extension. **Chưa kiểm chứng chất lượng model caption, HF hoặc Ollama trên video thật.** Cloud bị chặn tải Hugging Face/Router (403); chưa có endpoint Ollama. Đây là bản tích hợp thử nghiệm, không phải benchmark độ chính xác hoặc chứng nhận model mạnh nhất.
 
 ## Mới trong 3.0: phân tích chuyên sâu theo cảnh
 
@@ -52,9 +62,9 @@ Nếu CORS chặn đọc canvas: giữ video đầy đủ trong vùng nhìn th�
 
 ### 1. Local — miễn phí (mặc định)
 
-Chạy trực tiếp trong trình duyệt, không API key, không tải model hoặc gửi ảnh lên mạng. Đo độ sáng, độ tương phản (độ lệch chuẩn luminance), độ bão hòa HSV, bảng màu lượng tử hóa, chỉ số R−B và phân bố năng lượng cạnh. Phân đoạn cảnh dựa trên histogram, màu và khác biệt bố cục lưới 16×16 với ngưỡng đỉnh thích nghi; mốc cắt đặt ở trung điểm giữa hai ảnh. Fade/đổi ánh sáng có thể tạo điểm cắt sai.
+Mặc định bật **Chạy model caption ảnh cục bộ (thử nghiệm)**. Model chỉ được tải khi bạn bấm phân tích; lần sau dùng cache trình duyệt nếu còn. Không cần tài khoản HF/token cho model công khai. Có thể tải khá lâu và cần RAM ngoài dung lượng trọng số. Chỉ suy luận một keyframe mỗi cảnh (tối đa 24); caption có thể nhận nhầm. Không xác nhận cùng danh tính xuyên cảnh hoặc chuyển động từ một ảnh.
 
-**Đây là phép đo pixel, không phải mô hình AI Vision được huấn luyện.** Không nhận diện người/vật/hành động/camera hoặc hiểu nội dung. Prompt là mẫu tiếng Anh dựa trên số đo, có các chỗ trống `[SUBJECT]`, `[ACTION]`, `[SETTING]`, `[CAMERA]` để bạn tự điền. Dùng Web AI hoặc Cloud API khi cần phân tích ngữ nghĩa. Không hiển thị phần trăm video do AI tạo.
+Nếu tắt caption: chỉ đo luminance, tương phản, bão hòa, palette và phân bố cạnh; phân đoạn cảnh từ khác biệt ảnh. Prompt pixel có chỗ trống để bạn điền. Đổi ánh sáng/fade có thể tạo điểm cắt sai. Trong cả hai trường hợp, muốn hiểu camera/diễn biến/kịch bản sâu hơn nên dùng model đa phương thức ở Web hoặc chế độ 3. Không tạo phần trăm video AI từ số đo màu.
 
 ### 2. Gemini / ChatGPT web — không cần API
 
@@ -68,11 +78,15 @@ Extension không tự gửi, đính kèm ảnh, đọc hội thoại hoặc dùn
 
 ### 3. Cloud AI — tùy chọn
 
-Chọn OpenAI API hoặc Gemini API, nhập key của đúng nhà cung cấp, bấm **Tải danh sách model** và chọn model hỗ trợ ảnh + JSON. Đồng ý gửi ảnh, rồi phân tích. Key chỉ giữ trong bộ nhớ trang; đổi nhà cung cấp/chế độ hoặc đóng bảng sẽ xóa key và yêu cầu đồng ý lại.
+Chọn OpenAI, Gemini, Hugging Face hoặc Ollama. Bấm **Tải danh sách model**, chọn model nhận ảnh và trả JSON, đồng ý gửi ảnh rồi phân tích. Model/nhà cung cấp có thể không hỗ trợ nhiều ảnh hoặc structured output dù nhận ảnh đơn. Lỗi này cần đổi model, không tự điền dữ liệu giả.
 
-OpenAI dùng Responses API, tên gợi ý `gpt-4.1-mini`. Gemini dùng `generateContent`, tên gợi ý `gemini-2.5-flash`. Tên gợi ý có thể không khả dụng; danh sách qua API phản ánh quyền truy cập của key, còn tính năng ảnh/JSON phụ thuộc model. **Lỗi không tìm thấy model (404)**: tải danh sách và chọn model khác, hoặc chuyển Web AI. **Lỗi 429**: kiểm tra quota/thanh toán rồi thử lại. Không đổi key nhà cung cấp qua lại để sửa lỗi.
+OpenAI dùng Responses API; Gemini dùng `generateContent`; HF dùng `https://router.huggingface.co/v1/chat/completions`. HF token cần quyền **Inference Providers**, chỉ gửi đến HF Router. Theo [bảng giá HF hiện tại](https://huggingface.co/docs/inference-providers/pricing), tài khoản Free không có credit API hằng tháng; tải trọng số mở để chạy trên máy là quyền lợi khác với dịch vụ suy luận. Không gửi token vào chat/GitHub.
 
-**Gói ChatGPT Free / Plus / Pro không bao gồm phí OpenAI API.** Hai dịch vụ có key/thanh toán riêng. Có thể hủy trong khi chạy; hủy không bảo đảm nhà cung cấp ngừng xử lý hoặc hoàn phí. Giới hạn chờ API 120 giây.
+Ollama kết nối cố định `http://localhost:11434`, dùng native `/api/tags`, `/api/show`, `/api/chat`. Cấu hình yêu cầu context 32768 và output tối đa 16384 token, có thể tốn nhiều RAM/VRAM với nhiều ảnh. Giao diện không cài model hoặc khởi động dịch vụ thay bạn; [MODELS.md](MODELS.md) có hướng dẫn. Danh sách chỉ hiện model Vision cục bộ đã cài.
+
+Bật **Phân tích từng cảnh rồi tổng hợp** nếu chấp nhận nhiều yêu cầu. Mỗi lượt được kiểm tra JSON, mốc cảnh và timestamp; lượt lỗi sẽ dừng quá trình. Lượt tổng hợp phải dùng bằng chứng ảnh trực tiếp đính kèm, còn các ghi chú trước đó chỉ là ngữ cảnh AI có thể sai. Báo cáo JSON lưu `analysisPasses` để xem các lượt đã chạy; đây không phải log suy luận ẩn của model. Chế độ một yêu cầu chọn đều tối đa 24 ảnh.
+
+**Gói ChatGPT Free / Plus / Pro không bao gồm phí OpenAI API.** Key chỉ ở bộ nhớ trang, bị xóa khi đổi nhà cung cấp/chế độ hoặc đóng bảng. Có thể hủy; nhà cung cấp có thể vẫn xử lý và tính phí. Giới hạn chờ 3 phút cho một API, 10 phút cho Ollama hoặc nhiều lượt.
 
 ## Báo cáo 12 tab
 
@@ -80,7 +94,7 @@ OpenAI dùng Responses API, tên gợi ý `gpt-4.1-mini`. Gemini dùng `generate
 2. Cảnh: mốc ước lượng, ảnh mẫu và nút xem mốc trên video nguồn.
 3. Prompt: master, negative gợi ý và scene prompts.
 4. AI Tool: công cụ gốc **Unknown**; tách biệt nguồn phân tích báo cáo.
-5. Nhân vật: ID/tham chiếu, diện mạo, trang phục/vật liệu, liên kết cảnh và bằng chứng; Local không nhận diện chủ thể.
+5. Nhân vật: ID/tham chiếu, diện mạo, trang phục/vật liệu, liên kết cảnh và bằng chứng; Local caption chỉ có tham chiếu chủ thể từng cảnh, chưa xác minh liên cảnh.
 6. Camera: camera, ánh sáng và chuyển động từ báo cáo, ghi rõ giới hạn Local.
 7. Audio: nêu **chưa phân tích âm thanh**, không bịa nhạc hoặc lời thoại.
 8. Kịch bản: logline, hook, beats, chữ đề xuất, ending/loop; không phải thoại gốc.
@@ -95,23 +109,28 @@ OpenAI dùng Responses API, tên gợi ý `gpt-4.1-mini`. Gemini dùng `generate
 - Lưu tối đa 20 báo cáo lịch sử + 8 cache trong Chrome Storage; không lưu ảnh hoặc key. Metadata có tiêu đề/URL nguồn. Cache có dấu SHA-256 của ảnh, thông số nguồn và tùy chọn phân tích; thay ảnh/model/ghi chú sẽ không dùng nhầm cache cũ.
 - **Phân tích lại** bỏ qua cache và lấy lại ảnh. **Xóa cache** không xóa lịch sử; lịch sử có nút xóa riêng. Tắt tự cache xóa cache đang có.
 - Mở báo cáo lịch sử không khôi phục ảnh/video. Chọn lại nguồn để phân tích mới.
-- **Giải phóng ảnh trong RAM** bỏ tham chiếu ảnh/blob video; vẫn giữ báo cáo để xuất. Trình duyệt quyết định thời điểm thu hồi bộ nhớ. Số hiển thị nếu có là JS heap, không phải tổng RAM của máy.
+- **Giải phóng model & ảnh trong RAM** dừng worker model và bỏ tham chiếu ảnh/blob video; cache trọng số vẫn giữ; vẫn giữ báo cáo để xuất. Trình duyệt quyết định thời điểm thu hồi bộ nhớ. Số hiển thị nếu có là JS heap, không phải tổng RAM của máy.
 
 ## Phát triển & kiểm thử
 
-Không cần npm install/build. Node.js 20+ cho kiểm thử, Python stdlib cho đóng gói:
+Node.js 20+ và Python cho phát triển. ZIP phát hành chứa runtime đã build, người cài Chrome không cần Node/Python.
 
 ```sh
+npm ci --ignore-scripts --cache /workspace/.cache/npm
+npm run build:vision
 npm run check
 npm test
 python3 tests/browser_smoke.py
+python3 tests/vision_runtime_smoke.py
 npm run package
 ```
 
-Browser smoke cần Python Playwright, FFmpeg và Chromium (`/usr/bin/chromium`, hoặc `CHROMIUM_PATH`). Kiểm thử video tổng hợp thật, chọn nhiều video, tua/khôi phục trạng thái, đo pixel, cache/lịch sử/settings, 12 tab, Web JSON import, 4 định dạng xuất, model/quota và payload OpenAI/Gemini giả lập. Kiểm tra bố cục 320–900px; ảnh kiểm thử chuyên sâu ở `dist/v3-overview.png`, `dist/v3-ai-prompts.png` (video tổng hợp và phản hồi AI giả lập).
+Browser smoke cần Python Playwright, FFmpeg và Chromium (`/usr/bin/chromium`, hoặc `CHROMIUM_PATH`). Kiểm thử video tổng hợp thật, chọn nhiều video/tua/khôi phục, đo pixel, cache/lịch sử/settings, 12 tab, Web JSON import, 4 định dạng xuất, payload/model/quota/cancel OpenAI/Gemini/HF/Ollama **giả lập**, cùng orchestration nhiều lượt. Bài runtime dùng fixture ONNX Add 96 byte đã kiểm tra cấu trúc, chạy WASM thật; không thay thế kiểm thử trọng số pretrained. Lỗi tải model 403 được kiểm tra bằng worker/loader thật với phản hồi mạng bị từ chối chủ động trong bài test. Kết nối live HF cũng đã quan sát bị proxy từ chối 403.
+
+Build dùng npm lockfile và esbuild để bundle Transformers.js cùng backend WASM; mã JS/MJS/WASM đều nằm trong ZIP, không tải mã thực thi từ CDN. Trọng số/tệp cấu hình model tải riêng từ Hub. Giấy phép runtime ở `vendor/THIRD_PARTY_LICENSES.txt`; xem giấy phép trọng số trên model card.
 
 Chromium của môi trường cloud chặn nạp extension chưa đóng gói theo chính sách quản trị. Bài test chạy module/content script thật trong Chromium nhưng giả lập Chrome extension APIs; chưa xác minh `sidePanel`, quyền activeTab hoặc screenshot API thật. Mạng xã hội và dịch vụ AI thật cần đăng nhập/key của người dùng; kết quả phân tích trên các dịch vụ thật chưa được xác minh.
 
 ## Nguồn tham khảo
 
-Cấu trúc Manifest V3, lấy khung hình và giao diện được viết lại từ bộ tệp/ảnh người dùng cung cấp. Không tái sử dụng server đăng nhập/kích hoạt, endpoint máy chủ riêng, bundle ONNX/Transformers hoặc WASM cũ. Bản này không chứa trọng số mô hình AI chạy cục bộ và không tạo màn hình đăng nhập/đăng xuất giả khi chưa có dịch vụ tài khoản.
+Cấu trúc Manifest V3, lấy khung hình và giao diện được viết lại từ bộ tệp/ảnh người dùng cung cấp. Không tái sử dụng server đăng nhập/kích hoạt, endpoint máy chủ riêng, bundle ONNX/Transformers hoặc WASM cũ. Runtime mới build từ dependency có lockfile; ZIP không chứa trọng số pretrained. Không có màn hình đăng nhập/đăng xuất giả khi chưa có dịch vụ tài khoản.
