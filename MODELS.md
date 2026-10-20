@@ -1,5 +1,7 @@
 # Chọn model cho phân tích video
 
+**Đang xác minh cảnh báo tải xuống:** chưa xác định tệp bị chặn là ZIP extension hay installer khác. Tạm ngừng phát hành ZIP; không mở lại tệp đã bị chặn hoặc thêm ngoại lệ antivirus. Xem [SECURITY.md](SECURITY.md). Các bước cài dưới đây là tài liệu tham khảo, không phải hướng dẫn bỏ qua cảnh báo.
+
 Nguồn được đối chiếu ngày 20/10/2026. Đây là lựa chọn kiến trúc và cách kết nối, **chưa phải benchmark chất lượng trên video của bạn**. Không có model nào được chứng minh là “mạnh nhất” trong repository này.
 
 | Lựa chọn | Chạy ở đâu | Phù hợp / giới hạn | Trạng thái tích hợp |

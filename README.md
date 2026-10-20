@@ -1,15 +1,21 @@
-# MD Phân Tích AI — Video Prompt · v3.1.1 (tích hợp Vision thử nghiệm)
+# MD Phân Tích AI — Video Prompt · v3.1.2 (tích hợp Vision thử nghiệm)
 
 Extension Chrome / Edge Manifest V3 phân tích khung hình video Facebook, Instagram hoặc tệp video trên máy. Giao diện tối xanh cyan và báo cáo chuyên sâu theo từng cảnh: nguồn video, 3 chế độ, trạng thái/hiệu năng, báo cáo 12 tab, lịch sử, cài đặt và xuất tệp. Không có máy chủ riêng hoặc tài khoản extension.
 
-**[Tải extension ZIP](https://github.com/balasitaduc/promt/raw/refs/heads/main/video-to-prompt.zip)**
+**Tạm dừng phát hành ZIP:** đang xác minh báo cáo “phát hiện virus”; chưa biết tệp bị chặn và chưa có kết quả quét antivirus. Không bỏ qua cảnh báo hoặc thêm ngoại lệ. Xem [kết quả kiểm tra và thông tin cần đối chiếu](SECURITY.md).
 
 ## Cài / cập nhật
+
+Các bước dưới đây chỉ áp dụng sau khi ZIP được phát hành lại; hiện chưa cung cấp bản tải thay thế.
 
 1. Tải và giải nén `video-to-prompt.zip`.
 2. Vào `chrome://extensions` (Edge: `edge://extensions`), bật **Chế độ nhà phát triển**, chọn **Tải tiện ích đã giải nén / Load unpacked**, trỏ đến thư mục có `manifest.json`.
 3. Với bản cũ: giải nén đè vào thư mục đang cài rồi bấm **Tải lại / Reload**, đóng và mở lại bảng bên cạnh. Nếu dùng thư mục mới, gỡ bản cũ trước khi cài để tránh hai extension trùng nhau.
 4. Bản 2.0 bổ sung quyền `storage` để lưu cài đặt/lịch sử/cache. Chrome có thể yêu cầu chấp nhận quyền sau cập nhật. Ghim và bấm biểu tượng extension để mở bảng.
+
+## Sửa dependency trong 3.1.2 (chưa phát hành ZIP)
+
+Nâng Transformers.js lên 4.3.1, build lại runtime không minify, thêm thông tin phiên bản/hash và kiểm tra không đưa package Node vào bundle trình duyệt. `npm audit` sau cập nhật báo 0 cảnh báo; chưa xác định nguyên nhân cảnh báo antivirus. Lệnh package chỉ tạo tệp trong `dist/`, không tự phát hành. Xem [SECURITY.md](SECURITY.md).
 
 ## Mới trong 3.1.1
 

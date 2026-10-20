@@ -4,6 +4,9 @@ import { VISION_MODEL, VISION_REVISION, VISION_RUNTIME_PATH } from './vision-con
 env.allowLocalModels = false;
 env.allowRemoteModels = true;
 env.useBrowserCache = true;
+// Executable runtime assets are bundled locally; only model data is cached.
+// Avoid the runtime's optional Blob-based factory cache under extension CSP.
+env.useWasmCache = false;
 env.backends.onnx.wasm.wasmPaths = new URL(VISION_RUNTIME_PATH, import.meta.url).href;
 env.backends.onnx.wasm.numThreads = 1;
 env.backends.onnx.wasm.proxy = false;

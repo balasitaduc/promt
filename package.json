@@ -1,6 +1,6 @@
 {
   "name": "video-to-prompt",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "build:vision": "node scripts/build-vision.mjs"
   },
   "dependencies": {
-    "@huggingface/transformers": "3.8.1"
+    "@huggingface/transformers": "4.3.1"
   },
   "devDependencies": {
     "esbuild": "0.28.2"
