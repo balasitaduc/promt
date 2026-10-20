@@ -262,11 +262,14 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     assert len(hf_requests)==stored['analysis']['analysisPasses']['sceneCalls']+1
     assert 'Earlier scene-level AI observations' in hf_requests[-1]['messages'][0]['content'][0]['text']
     assert 'test-hf-not-real' not in json.dumps(stored)
+    page.locator('#report-tabs button').nth(1).click()
+    expect(page.locator('#result-body')).to_contain_text('GHI CHÚ TỪNG LƯỢT TRƯỚC TỔNG HỢP')
+    expect(page.locator('#result-body details.scene-card')).to_have_count(len(stored['analysis']['scenes'])+stored['analysis']['analysisPasses']['sceneCalls'])
     local_requests=[]
     def ollama_api(route):
         local_requests.append(route.request)
-        if route.request.url.endswith('/tags'):value={'models':[{'name':'qwen3-vl:4b'},{'name':'text-only'}]}
-        elif route.request.url.endswith('/show'):value={'capabilities':['vision'] if json.loads(route.request.post_data)['model']=='qwen3-vl:4b' else ['completion']}
+        if route.request.url.endswith('/tags'):value={'models':[{'name':'qwen3-vl:4b'},{'name':'qwen3-vl:8b'},{'name':'text-only'}]}
+        elif route.request.url.endswith('/show'):value={'capabilities':['vision'] if json.loads(route.request.post_data)['model'].startswith('qwen3-vl:') else ['completion']}
         else:value={'done':True,'done_reason':'stop','message':{'content':json.dumps(OUTPUT)}}
         route.fulfill(status=200,content_type='application/json',body=json.dumps(value))
     context.route('http://localhost:11434/**',ollama_api)
@@ -274,11 +277,13 @@ with TemporaryDirectory() as temporary, sync_playwright() as playwright:
     expect(page.locator('#api-key')).to_be_hidden();expect(page.locator('#load-models')).to_be_enabled()
     expect(page.locator('#consent')).not_to_be_checked()
     page.locator('#deep-passes').uncheck();page.locator('#load-models').click()
-    expect(page.locator('#model')).to_have_value('qwen3-vl:4b')
+    expect(page.locator('#model')).to_have_value('qwen3-vl:8b')
     page.locator('#consent').check();page.locator('#analyze').click()
     expect(page.locator('#state')).to_have_text('COMPLETED')
     request=next(r for r in local_requests if r.url.endswith('/chat'))
-    assert len(json.loads(request.post_data)['messages'][0]['images'])==12
+    assert len(json.loads(request.post_data)['messages'][0]['images'])==4
+    assert json.loads(request.post_data)['options']['num_ctx']==16384
+    expect(page.locator('#engine-status')).to_contain_text('4/12 ảnh')
     assert 'authorization' not in request.headers
     print('PASS: HF/Ollama provider UI, actual image requests, Vision filtering and scene-then-synthesis orchestration (mock inference)')
 

@@ -1,4 +1,4 @@
-# MD Phân Tích AI — Video Prompt · v3.1.0 (tích hợp Vision thử nghiệm)
+# MD Phân Tích AI — Video Prompt · v3.1.1 (tích hợp Vision thử nghiệm)
 
 Extension Chrome / Edge Manifest V3 phân tích khung hình video Facebook, Instagram hoặc tệp video trên máy. Giao diện tối xanh cyan và báo cáo chuyên sâu theo từng cảnh: nguồn video, 3 chế độ, trạng thái/hiệu năng, báo cáo 12 tab, lịch sử, cài đặt và xuất tệp. Không có máy chủ riêng hoặc tài khoản extension.
 
@@ -11,15 +11,19 @@ Extension Chrome / Edge Manifest V3 phân tích khung hình video Facebook, Inst
 3. Với bản cũ: giải nén đè vào thư mục đang cài rồi bấm **Tải lại / Reload**, đóng và mở lại bảng bên cạnh. Nếu dùng thư mục mới, gỡ bản cũ trước khi cài để tránh hai extension trùng nhau.
 4. Bản 2.0 bổ sung quyền `storage` để lưu cài đặt/lịch sử/cache. Chrome có thể yêu cầu chấp nhận quyền sau cập nhật. Ghim và bấm biểu tượng extension để mở bảng.
 
+## Mới trong 3.1.1
+
+Cấu hình mặc định Ollama được giảm xuống 4 ảnh/lượt, context 16K và output 8K để bắt đầu với Windows, RAM 32 GB, RTX 3060 12 GB. Khi có nhiều model, ưu tiên Qwen3‑VL 8B đã cài; có thể chọn 4B nhẹ hơn. Ghi chú từng lượt trước tổng hợp hiển thị ở tab Cảnh và có trong bản xuất TXT/Markdown/HTML, bên cạnh JSON. Chưa đo trực tiếp trên phần cứng đó. [Hướng dẫn Windows](MODELS.md#windows-ram-32-gb-rtx-3060-12-gb).
+
 ## Mới trong 3.1: model thật và lựa chọn mạnh hơn
 
 - **Caption cục bộ**: Transformers.js + ONNX Runtime WASM đóng gói sẵn, model `Xenova/vit-gpt2-image-captioning` q8 tải từ Hugging Face lần đầu (~237 MB theo bản gốc, chưa xác minh kích thước tải thực tế). Ảnh được suy luận trong worker, không tải ảnh lên Hub. Có tiến độ, hủy, giải phóng worker và xóa cache trọng số riêng. Model này nhỏ, chỉ mô tả keyframe bằng tiếng Anh; không đủ cho phân tích video sâu. Có thể tắt để chỉ đo pixel.
 - **Hugging Face Inference Providers**: token chỉ giữ trong phiên; lấy danh sách model khai báo nhận ảnh/trả text từ HF Router. Không gắn cứng một tên model rồi giả định tài khoản nào cũng chạy được. Ảnh được gửi đến HF/provider khi đồng ý.
 - **Ollama trên máy**: lấy model đã cài, kiểm tra capability `vision`, dùng `/api/chat` native với ảnh và JSON. Không cần key hay phí API; cần tự cài Ollama/model và đủ RAM/GPU. Chế độ này bỏ qua model có nhãn `cloud` hoặc metadata remote. Xem [hướng dẫn chọn model](MODELS.md).
-- **Từng cảnh → tổng hợp**: tùy chọn ở chế độ 3. Tối đa 12 lượt phân tích nhóm cảnh (12 ảnh/lượt) và 1 lượt tổng hợp (24 ảnh). Các đoạn rất nhiều cảnh được gộp thành tối đa 12 khoảng; không cam kết gửi toàn bộ 60 ảnh khi một khoảng có trên 12 ảnh. Tổng hợp nhận các mô tả cảnh và ảnh tham chiếu, rồi tạo 12 phần báo cáo. Tốn thêm thời gian/tài nguyên/phí; mặc định tắt.
+- **Từng cảnh → tổng hợp**: tùy chọn ở chế độ 3. Tối đa 12 lượt phân tích nhóm cảnh và 1 lượt tổng hợp. Ollama tối đa 4 ảnh/lượt; API khác 12 ảnh/lượt cảnh, 24 ảnh tổng hợp. Các đoạn rất nhiều cảnh được gộp thành tối đa 12 khoảng; không cam kết gửi toàn bộ 60 ảnh khi một khoảng có trên 12 ảnh. Tổng hợp nhận các mô tả cảnh và ảnh tham chiếu, rồi tạo 12 phần báo cáo. Tốn thêm thời gian/tài nguyên/phí; mặc định tắt.
 - **Trạng thái trung thực**: lỗi model là `MODEL_ERROR`, không âm thầm biến phép đo pixel thành kết quả Vision. Cache v3 không dùng nhầm làm cache Vision v3.1.
 
-**Kiểm chứng hiện tại:** 32 kiểm thử Node; browser smoke với video thật tổng hợp và phản hồi AI giả lập; ONNX thực thi phép cộng thật bằng WASM dưới CSP extension. **Chưa kiểm chứng chất lượng model caption, HF hoặc Ollama trên video thật.** Cloud bị chặn tải Hugging Face/Router (403); chưa có endpoint Ollama. Đây là bản tích hợp thử nghiệm, không phải benchmark độ chính xác hoặc chứng nhận model mạnh nhất.
+**Kiểm chứng hiện tại:** 34 kiểm thử Node; browser smoke với video thật tổng hợp và phản hồi AI giả lập; ONNX thực thi phép cộng thật bằng WASM dưới CSP extension. **Chưa kiểm chứng chất lượng model caption, HF hoặc Ollama trên video thật.** Cloud bị chặn tải Hugging Face/Router (403); chưa có endpoint Ollama. Đây là bản tích hợp thử nghiệm, không phải benchmark độ chính xác hoặc chứng nhận model mạnh nhất.
 
 ## Mới trong 3.0: phân tích chuyên sâu theo cảnh
 
@@ -54,7 +58,7 @@ Trước khi có JSON AI, chế độ Web đã hiển thị số đo Local/timel
 - **Dán link video**: hỗ trợ link HTTPS chính thức của Facebook / Instagram (ví dụ `https://www.instagram.com/reels/DepGcNqih2d/`). Bấm **Mở link & tìm video**; trang được mở trong tab mới. Đăng nhập trên trang chính thức nếu được yêu cầu, đóng hộp thoại, phát video rồi **Quét lại**. Link được mở để đọc video thật, không suy luận nội dung từ URL.
 - **Tệp**: tối đa 250 MB, 10 phút; khuyến nghị MP4 H.264 hoặc WebM VP8/VP9. MOV tùy codec Chrome hỗ trợ. Không hỗ trợ livestream.
 
-Bấm **PHÂN TÍCH VIDEO** để lấy mẫu (không cần thêm nút trích xuất riêng). Ảnh dài tối đa 960 pixel. Cài đặt giới hạn 12–60 ảnh: nhanh 12, tiêu chuẩn tối đa 36 trong giới hạn cài đặt, chi tiết dùng đúng giới hạn. Yêu cầu API chọn đều tối đa 24 ảnh, giữ cả ảnh đầu/cuối. Video trên tab được trả lại vị trí và trạng thái phát ban đầu khi lấy ảnh xong.
+Bấm **PHÂN TÍCH VIDEO** để lấy mẫu (không cần thêm nút trích xuất riêng). Ảnh dài tối đa 960 pixel. Cài đặt giới hạn 12–60 ảnh: nhanh 12, tiêu chuẩn tối đa 36 trong giới hạn cài đặt, chi tiết dùng đúng giới hạn. Yêu cầu chọn đều tối đa 4 ảnh/lượt Ollama hoặc 24 ảnh/lượt API khác, giữ ảnh đầu/cuối của tập ảnh được chọn. Video trên tab được trả lại vị trí và trạng thái phát ban đầu khi lấy ảnh xong.
 
 Nếu CORS chặn đọc canvas: giữ video đầy đủ trong vùng nhìn thấy, bấm lại biểu tượng extension trên tab video để cấp quyền `activeTab`, rồi thử lại. Extension có thể chụp tab và cắt vùng video. Kiểm tra ảnh mẫu vì lớp phủ/chữ trên trang có thể có trong ảnh. Video riêng tư, bị xóa, yêu cầu đăng nhập, giới hạn khu vực, DRM hoặc video trong iframe có thể không đọc được; dùng tệp video bạn có quyền sử dụng nếu cần.
 
@@ -82,9 +86,9 @@ Chọn OpenAI, Gemini, Hugging Face hoặc Ollama. Bấm **Tải danh sách mode
 
 OpenAI dùng Responses API; Gemini dùng `generateContent`; HF dùng `https://router.huggingface.co/v1/chat/completions`. HF token cần quyền **Inference Providers**, chỉ gửi đến HF Router. Theo [bảng giá HF hiện tại](https://huggingface.co/docs/inference-providers/pricing), tài khoản Free không có credit API hằng tháng; tải trọng số mở để chạy trên máy là quyền lợi khác với dịch vụ suy luận. Không gửi token vào chat/GitHub.
 
-Ollama kết nối cố định `http://localhost:11434`, dùng native `/api/tags`, `/api/show`, `/api/chat`. Cấu hình yêu cầu context 32768 và output tối đa 16384 token, có thể tốn nhiều RAM/VRAM với nhiều ảnh. Giao diện không cài model hoặc khởi động dịch vụ thay bạn; [MODELS.md](MODELS.md) có hướng dẫn. Danh sách chỉ hiện model Vision cục bộ đã cài.
+Ollama kết nối cố định `http://localhost:11434`, dùng native `/api/tags`, `/api/show`, `/api/chat`. Cấu hình khởi đầu cho GPU 12 GB: tối đa 4 ảnh/lượt, context 16384 và output tối đa 8192 token. Tổng hợp dùng ghi chú rút gọn; ghi chú đầy đủ của các lượt vẫn có trong JSON. Đây không phải cam kết mức VRAM hoặc tốc độ. Giao diện không cài model hoặc khởi động dịch vụ thay bạn; [MODELS.md](MODELS.md) có hướng dẫn. Danh sách chỉ hiện model Vision cục bộ đã cài.
 
-Bật **Phân tích từng cảnh rồi tổng hợp** nếu chấp nhận nhiều yêu cầu. Mỗi lượt được kiểm tra JSON, mốc cảnh và timestamp; lượt lỗi sẽ dừng quá trình. Lượt tổng hợp phải dùng bằng chứng ảnh trực tiếp đính kèm, còn các ghi chú trước đó chỉ là ngữ cảnh AI có thể sai. Báo cáo JSON lưu `analysisPasses` để xem các lượt đã chạy; đây không phải log suy luận ẩn của model. Chế độ một yêu cầu chọn đều tối đa 24 ảnh.
+Bật **Phân tích từng cảnh rồi tổng hợp** nếu chấp nhận nhiều yêu cầu. Mỗi lượt được kiểm tra JSON, mốc cảnh và timestamp; lượt lỗi sẽ dừng quá trình. Lượt tổng hợp phải dùng bằng chứng ảnh trực tiếp đính kèm, còn các ghi chú trước đó chỉ là ngữ cảnh AI có thể sai. Báo cáo JSON lưu `analysisPasses` để xem các lượt đã chạy; đây không phải log suy luận ẩn của model. Chế độ một yêu cầu chọn đều tối đa 4 ảnh Ollama hoặc 24 ảnh API khác.
 
 **Gói ChatGPT Free / Plus / Pro không bao gồm phí OpenAI API.** Key chỉ ở bộ nhớ trang, bị xóa khi đổi nhà cung cấp/chế độ hoặc đóng bảng. Có thể hủy; nhà cung cấp có thể vẫn xử lý và tính phí. Giới hạn chờ 3 phút cho một API, 10 phút cho Ollama hoặc nhiều lượt.
 

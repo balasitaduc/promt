@@ -34,12 +34,24 @@ test('Ollama discovery verifies vision capability, excludes cloud/remote models 
   }});assert.deepEqual(models,['qwen3-vl:4b']);assert.equal(requests.length,3);
 });
 test('Ollama uses native JSON/image API and explicit context size without sending credentials',async()=>{
-  const payload=createOllamaPayload(frames,meta,'qwen3-vl:4b');assert.equal(payload.messages[0].images.length,2);assert.equal(payload.format,'json');assert.equal(payload.options.num_ctx,32768);
+  const payload=createOllamaPayload(frames,meta,'qwen3-vl:4b');assert.equal(payload.messages[0].images.length,2);assert.equal(payload.format,'json');assert.equal(payload.options.num_ctx,16384);assert.equal(payload.options.num_predict,8192);
   const options={provider:'ollama',key:'MUST_NOT_SEND',model:'qwen3-vl:4b',frames,meta};
   await analyze({...options,fetcher:async(url,init)=>{assert.ok(!init.headers.Authorization);assert.doesNotMatch(init.body,/MUST_NOT_SEND/);if(url.endsWith('/show'))return json({capabilities:['vision']});assert.equal(url,'http://localhost:11434/api/chat');return json({done:true,done_reason:'stop',message:{content:JSON.stringify(output)}});}});
   await assert.rejects(analyze({...options,fetcher:async()=>json({capabilities:['vision'],remote_model:'cloud'})}),/remote\/cloud/);
   await assert.rejects(analyze({...options,model:'qwen:397b-cloud'}),/cloud/);
   await assert.rejects(analyze({...options,fetcher:async()=>{throw new TypeError('Failed to fetch');}}),/localhost:11434/);
+});
+test('12 GB profile caps images while retaining endpoints and rejects evidence from an unsent frame',async()=>{
+  const many=Array.from({length:8},(_,i)=>({timestamp:i/4,dataUrl:`data:image/jpeg;base64,${btoa(String(i))}`}));
+  const payload=createOllamaPayload(many,meta,'qwen3-vl:8b');
+  assert.equal(payload.messages[0].images.length,4);
+  assert.equal(payload.messages[0].images[0],many[0].dataUrl.split(',')[1]);assert.equal(payload.messages[0].images.at(-1),many.at(-1).dataUrl.split(',')[1]);
+  const invented=structuredClone(output);invented.deep.sceneDetails[0].evidence[0].timestamp=.25;
+  await assert.rejects(analyze({provider:'ollama',key:'',model:'qwen3-vl:8b',frames:many,meta,fetcher:async(url,init)=>{
+    if(url.endsWith('/show'))return json({capabilities:['vision']});
+    assert.equal(JSON.parse(init.body).messages[0].images.length,4);
+    return json({done:true,done_reason:'stop',message:{content:JSON.stringify(invented)}});
+  }}),/không có trong các khung hình đã gửi/);
 });
 test('deep analysis performs scene calls with actual images then passes bounded observations to synthesis',async()=>{
   const seen=[],progress=[];

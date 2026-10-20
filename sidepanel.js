@@ -1,4 +1,4 @@
-import { MAX_FILE_SIZE, sampleTimes, formatTime, analyze, analyzeInDepth, validateVideoUrl, API_PROVIDERS, listModels, buildInstruction, representativeFrames, parseAnalysis } from './core.js';
+import { MAX_FILE_SIZE, sampleTimes, formatTime, analyze, analyzeInDepth, validateVideoUrl, API_PROVIDERS, OLLAMA_PROFILE, providerFrameLimit, listModels, buildInstruction, representativeFrames, parseAnalysis } from './core.js';
 import { analyzeLocal } from './local.js';
 import { Repository, browserAdapter, fingerprint } from './storage.js';
 import { REPORT_TABS, renderReport, reportMarkdown } from './reports.js';
@@ -85,7 +85,7 @@ function selectProvider() {
   $('model').value = config.defaultModel; $('model').placeholder = 'Bấm Tải danh sách model hỗ trợ ảnh'; $('api-key-label').textContent = config.requiresKey === false ? 'Ollama không cần API key' : `${config.label} ${$('provider').value==='huggingface'?'token (quyền Inference Providers)':'API key'}`;
   $('api-key').hidden = config.requiresKey === false;
   $('key-link').href = config.keyUrl; $('key-link').textContent = config.label;
-  $('provider-hint').textContent = $('provider').value==='huggingface' ? 'HF Free tải được model mở, nhưng API không có credit miễn phí hằng tháng theo tài liệu hiện tại. Token cần quyền Inference Providers. Danh sách chỉ lấy model có khai báo hỗ trợ ảnh; khả năng nhiều ảnh/JSON còn tùy provider. Xem phí tại Hugging Face Billing.' : $('provider').value==='ollama' ? 'Cần cài và chạy Ollama trên máy này, tải model Vision (ví dụ qwen3-vl:4b hoặc :8b). Extension kết nối localhost:11434, không cần HF token/phí API. Tốc độ và bộ nhớ tùy model/phần cứng. Xem README nếu Chrome chặn kết nối.' : 'API tính phí riêng với gói ChatGPT. Tối đa 24 ảnh được gửi; báo cáo chuyên sâu có thể dùng nhiều token. Danh sách không bảo đảm model nào cũng hỗ trợ ảnh/JSON.';
+  $('provider-hint').textContent = $('provider').value==='huggingface' ? 'HF Free tải được model mở, nhưng API không có credit miễn phí hằng tháng theo tài liệu hiện tại. Token cần quyền Inference Providers. Danh sách chỉ lấy model có khai báo hỗ trợ ảnh; khả năng nhiều ảnh/JSON còn tùy provider. Xem phí tại Hugging Face Billing.' : $('provider').value==='ollama' ? 'Cấu hình khởi đầu cho GPU 12 GB: qwen3-vl:8b lượng tử hóa, tối đa 4 ảnh/lượt, context 16K, output 8K; bản 4B nhẹ hơn. Cần cài và mở Ollama trên máy. Kết nối localhost:11434, không cần HF token/phí API. Chưa đo VRAM/tốc độ thực tế; xem MODELS.md nếu thiếu bộ nhớ hoặc Chrome chặn kết nối.' : 'API tính phí riêng với gói ChatGPT. Tối đa 24 ảnh được gửi; báo cáo chuyên sâu có thể dùng nhiều token. Danh sách không bảo đảm model nào cũng hỗ trợ ảnh/JSON.';
   $('consent-text').textContent = config.requiresKey===false ? 'Tôi đồng ý gửi ảnh và ghi chú đến Ollama cục bộ trên máy này.' : `Tôi đồng ý gửi ảnh và ghi chú đến ${config.label}. API có thể tính phí.`; controls();
 }
 $('provider').addEventListener('change', selectProvider);
@@ -102,7 +102,7 @@ $('load-models').addEventListener('click', () => run(async () => {
   const models = await listModels({ provider: $('provider').value, key: $('api-key').value, signal: AbortSignal.timeout(20000) });
   if (!models.length) throw new Error('Không tìm thấy model phù hợp. Chọn Web AI để dùng không cần API key.');
   $('model-options').replaceChildren(...models.map(name => { const option = element('option'); option.value = name; return option; }));
-  if (!models.includes($('model').value)) $('model').value = models[0];
+  if (!models.includes($('model').value)) $('model').value = ($('provider').value==='ollama'&&models.find(name=>/^qwen3-vl:8b(?:-|$)/i.test(name)&&!/thinking/i.test(name)))||models[0];
   status(`Đã tải ${models.length} model; chọn model có hỗ trợ ảnh và JSON.`);
 }));
 
@@ -240,7 +240,7 @@ async function startAnalysis(force = false) {
     let timeout;
     try {
       await extractFrames(force); checkCancelled();
-      const options = { version: 4, engine: state.engine, localVision: state.engine==='local'&&$('local-vision').checked?VISION_MODEL:null, deepPasses:state.engine==='cloud'&&$('deep-passes').checked, provider: state.engine === 'cloud' ? $('provider').value : null, model: state.engine === 'cloud' ? $('model').value : null, language: language(), goal: $('goal').value };
+      const options = { version: 4, engine: state.engine, localVision: state.engine==='local'&&$('local-vision').checked?VISION_MODEL:null, deepPasses:state.engine==='cloud'&&$('deep-passes').checked, provider: state.engine === 'cloud' ? $('provider').value : null, profile:state.engine==='cloud'&&$('provider').value==='ollama'?OLLAMA_PROFILE.id:null, model: state.engine === 'cloud' ? $('model').value : null, language: language(), goal: $('goal').value };
       const cacheKey = await fingerprint(state.frames, state.meta, options);
       const cached = !force && settings().cache ? repository.state.cache[cacheKey] : null;
       if (cached && state.engine !== 'web') { state.report = cached; state.localAnalysis=cached.analysis; $('run-id').textContent = cached.id; $('state').textContent = 'CACHED'; progress(100, 'Đã đọc báo cáo từ cache'); render(); status('Đã dùng kết quả cache. Bấm Phân tích lại để chạy mới.'); return; }
@@ -269,7 +269,7 @@ async function startAnalysis(force = false) {
         }
       } else {
         if (!$('consent').checked) throw new Error('Cần đồng ý gửi ảnh trước khi gọi API.');
-        const selected = representativeFrames(state.frames), provider = $('provider').value, deepPasses=$('deep-passes').checked;
+        const provider = $('provider').value, selected = representativeFrames(state.frames,providerFrameLimit(provider)), deepPasses=$('deep-passes').checked;
         engine = `${API_PROVIDERS[provider].label} API · ${$('model').value} · ${selected.length}/${state.frames.length} ảnh`;
         progress(60, `${API_PROVIDERS[provider].label} đang phân tích…`);
         timeout = setTimeout(() => state.controller?.abort('timeout'), provider==='ollama'||deepPasses?600000:180000);

@@ -85,3 +85,10 @@ test('export includes complete deep content and production budgets require expli
   assert.throws(()=>normalizeDeep(noAssumption,fixture.scenes,2),/giả định/);
   assert.match(buildInstruction(meta,'vi',''),/sceneDetails/);assert.match(buildInstruction(meta,'vi',''),/cameraMovement/);
 });
+
+test('text exports retain scene-pass detail that is absent from the synthesis report',()=>{
+  const analysis=attachMeasurements(parseAnalysis(JSON.stringify(fixture),2),buildLocalAnalysis(samples,meta),meta);
+  analysis.analysisPasses={sceneNotes:[{start:0,end:2,fields:{subject:'PASS_SUBJECT_ONLY',wardrobe:'PASS_WARDROBE_ONLY'},promptVi:'PASS_PROMPT_VI',promptEn:'PASS_PROMPT_EN',evidence:[{timestamp:0,observation:'PASS_EVIDENCE'}],uncertainties:['PASS_UNCERTAINTY']}]};
+  const text=reportMarkdown({analysis,meta,id:'test',engine:'Mock AI',createdAt:'2026-10-20',elapsedMs:1});
+  for(const value of ['PASS_SUBJECT_ONLY','PASS_WARDROBE_ONLY','PASS_PROMPT_VI','PASS_PROMPT_EN','PASS_EVIDENCE','PASS_UNCERTAINTY'])assert.ok(text.includes(value),value);
+});

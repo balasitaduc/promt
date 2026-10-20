@@ -26,7 +26,24 @@ Nguồn được đối chiếu ngày 20/10/2026. Đây là lựa chọn kiến 
 
 Extension dùng `http://localhost:11434`. Nếu không kết nối được: kiểm tra Ollama đang chạy, phiên bản hỗ trợ Vision, quyền truy cập mạng cục bộ của Chrome và log CORS. Khi cần cấu hình Origin, dùng đúng `chrome-extension://<ID>` lấy từ `chrome://extensions` trong `OLLAMA_ORIGINS`, rồi khởi động lại Ollama. Không cần mở dịch vụ ra Internet. Xem [tài liệu Ollama](https://docs.ollama.com/faq).
 
-Request native đặt `num_ctx:32768`, `num_predict:16384`, `format:"json"`, `think:false`. Bộ nhớ còn phụ thuộc lượng ảnh, độ phân giải, quantization và cache ngữ cảnh; kích thước file model không bằng tổng RAM cần có. Chưa có số đo hiệu năng trên phần cứng của bạn.
+Request native đặt tối đa 4 ảnh/lượt, `num_ctx:16384`, `num_predict:8192`, `format:"json"`, `think:false`. Bộ nhớ còn phụ thuộc lượng ảnh, độ phân giải, quantization và cache ngữ cảnh; kích thước file model không bằng tổng RAM cần có. Chưa có số đo hiệu năng trên phần cứng của bạn.
+
+## Windows, RAM 32 GB, RTX 3060 12 GB
+
+Cấu hình nên thử trước: **Qwen3‑VL 8B lượng tử hóa qua Ollama**. Đây là lựa chọn dựa trên dung lượng phần cứng; chưa được benchmark trên máy đó. Bản 4B là phương án nhẹ hơn nếu 8B thiếu bộ nhớ hoặc quá chậm. Không chọn bản FP16/BF16 của model 8B để kỳ vọng chạy hoàn toàn trong VRAM 12 GB; dùng biến thể lượng tử hóa phù hợp của thư viện Ollama.
+
+1. Cài [Ollama cho Windows](https://ollama.com/download/windows), mở ứng dụng. Sau cài đặt mở một cửa sổ PowerShell mới.
+2. Tải model bằng lệnh:
+
+   ```powershell
+   ollama pull qwen3-vl:8b
+   ```
+
+3. Trong extension 3.1.1 chọn **3. Vision chuyên sâu → Ollama → Tải danh sách model → qwen3-vl:8b**. Đồng ý gửi ảnh đến Ollama trên máy. Không cần HF token/API key. Chạy một video ngắn trước, sau đó bật **Phân tích từng cảnh rồi tổng hợp**.
+
+Nếu cần bản nhẹ hơn, chạy `ollama pull qwen3-vl:4b`, tải lại danh sách và chọn model đó. Có thể kiểm tra thiết bị thực thi bằng `ollama ps` trong PowerShell khi đang phân tích; cột PROCESSOR cho biết GPU/CPU, tránh suy luận rằng mọi lần chạy đều nằm hết trên GPU chỉ vì máy có card NVIDIA. Đóng ứng dụng đang dùng nhiều VRAM nếu cần.
+
+Extension giới hạn 4 ảnh mỗi yêu cầu, context 16K, output tối đa 8K token và xử lý các lượt theo thứ tự. Ảnh vẫn được lấy mẫu theo số lượng cài đặt; mỗi lượt chọn các ảnh đại diện, không gửi toàn bộ ảnh cùng lúc. Lượt tổng hợp nhận ghi chú rút gọn, còn các ghi chú đã lưu trước khi rút gọn được giữ trong `analysisPasses.sceneNotes` của JSON, hiển thị ở tab Cảnh và có trong TXT/Markdown/HTML. Mỗi trường ghi chú lưu tối đa 300 ký tự và mỗi prompt VI/EN tối đa 1800 ký tự; không phải toàn bộ phản hồi thô của model. Giới hạn này giảm tải đầu vào, có thể bỏ sót chuyển động giữa các ảnh; không bảo đảm tránh hết lỗi thiếu bộ nhớ hoặc JSON bị cắt.
 
 ## Cách phân tích sâu hoạt động
 

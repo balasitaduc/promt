@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MD Phân Tích AI — Video Prompt",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "minimum_chrome_version": "116",
   "description": "Phân tích khung hình video và tạo prompt tái tạo theo từng cảnh.",
   "permissions": [
@@ -38,5 +38,5 @@
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; object-src 'self'; connect-src 'self' https://generativelanguage.googleapis.com https://api.openai.com https://huggingface.co https://*.hf.co https://*.huggingface.co http://localhost:11434; img-src 'self' data: blob:; media-src 'self' blob:;"
   },
-  "version_name": "3.1.0 — Vision thử nghiệm"
+  "version_name": "3.1.1 — Vision thử nghiệm"
 }

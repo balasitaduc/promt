@@ -122,6 +122,10 @@ export const API_PROVIDERS = {
 };
 const HF_ROUTER = 'https://router.huggingface.co/v1';
 const OLLAMA = 'http://localhost:11434';
+// Conservative starting point for an 8B quantized VLM on a 12 GB GPU.
+// These are request limits, not a guarantee of VRAM use or inference speed.
+export const OLLAMA_PROFILE = Object.freeze({ id:'12gb-v1', context:16384, outputTokens:8192, images:4 });
+export function providerFrameLimit(provider,scene=false) { return provider==='ollama'?OLLAMA_PROFILE.images:scene?12:24; }
 
 function providerConfig(provider, key) {
   const config = Object.hasOwn(API_PROVIDERS, provider) ? API_PROVIDERS[provider] : null;
@@ -184,8 +188,16 @@ async function analyzeVisionChat({provider,key,model,frames,meta,language,goal,s
 }
 
 export function createOllamaPayload(frames,meta,model,language='vi',goal='') {
-  const parts=createPayload(frames,meta,language,goal).contents[0].parts;
-  return {model,stream:false,think:false,format:'json',options:{num_ctx:32768,num_predict:16384,temperature:0.2},messages:[{role:'user',content:parts.filter(p=>p.text).map(p=>p.text).join('\n')+'\nThe attached images follow the exact chronological timestamp order above.',images:parts.filter(p=>p.inlineData).map(p=>p.inlineData.data)}]};
+  const selected=representativeFrames(frames,OLLAMA_PROFILE.images);
+  const noteFields=['subject','action','environment','cameraMovement','lighting','continuity'];
+  const contextMeta={...meta,
+    // Pixel metrics are attached in full by the app; the VLM only needs a
+    // compact reference here. Full pass notes remain available in the report.
+    measurements:meta.measurements?.map(p=>({start:p.start,end:p.end,palette:p.measurements?.palette,luminance:p.measurements?.luminance})),
+    sceneNotes:meta.sceneNotes?.map(note=>({start:note.start,end:note.end,fields:Object.fromEntries(noteFields.map(key=>[key,note.fields?.[key]?.slice(0,80)??null])),uncertainty:note.uncertainties?.[0]?.slice(0,120)??null}))
+  };
+  const parts=createPayload(selected,contextMeta,language,goal).contents[0].parts;
+  return {model,stream:false,think:false,format:'json',options:{num_ctx:OLLAMA_PROFILE.context,num_predict:OLLAMA_PROFILE.outputTokens,temperature:0.2},messages:[{role:'user',content:parts.filter(p=>p.text).map(p=>p.text).join('\n')+'\nThe attached images follow the exact chronological timestamp order above. Earlier scene notes, if any, are compact summaries; do not invent details omitted from them.',images:parts.filter(p=>p.inlineData).map(p=>p.inlineData.data)}]};
 }
 
 export async function analyzeInDepth(options) {
@@ -201,7 +213,7 @@ export async function analyzeInDepth(options) {
   }
   const sceneNotes=[];
   for(let i=0;i<groups.length;i++) {
-    signal?.throwIfAborted();const group=groups[i],selected=representativeFrames(frames.filter(f=>f.timestamp>=group.start&&f.timestamp<group.end),12);
+    signal?.throwIfAborted();const group=groups[i],selected=representativeFrames(frames.filter(f=>f.timestamp>=group.start&&f.timestamp<group.end),providerFrameLimit(options.provider,true));
     if(!selected.length)continue;
     onProgress({stage:'scene',current:i+1,total:groups.length,frameCount:selected.length});
     const analysis=await analyze({...options,frames:selected,meta:{...meta,sceneNotes:undefined,focus:{start:group.start,end:group.end},measurements:group.measurements}});
@@ -209,9 +221,10 @@ export async function analyzeInDepth(options) {
     const detail=analysis.deep.sceneDetails[0];
     sceneNotes.push({start:group.start,end:group.end,fields:Object.fromEntries(Object.entries(detail.fields).map(([k,v])=>[k,v?.slice(0,300)??null])),evidence:detail.evidence.slice(0,4),uncertainties:detail.uncertainties.slice(0,4),promptVi:detail.promptVi?.slice(0,1800),promptEn:detail.promptEn?.slice(0,1800)});
   }
-  signal?.throwIfAborted();onProgress({stage:'synthesis',current:groups.length+1,total:groups.length+1,frameCount:Math.min(24,frames.length)});
-  const result=await analyze({...options,frames:representativeFrames(frames),meta:{...meta,focus:undefined,sceneNotes}});
-  result.analysisPasses={mode:'scene_then_synthesis',sceneCalls:sceneNotes.length,synthesisCalls:1,sampledFrames:frames.length,sceneNotes};
+  signal?.throwIfAborted();const synthesisFrames=representativeFrames(frames,providerFrameLimit(options.provider));
+  onProgress({stage:'synthesis',current:groups.length+1,total:groups.length+1,frameCount:synthesisFrames.length});
+  const result=await analyze({...options,frames:synthesisFrames,meta:{...meta,focus:undefined,sceneNotes}});
+  result.analysisPasses={mode:'scene_then_synthesis',sceneCalls:sceneNotes.length,synthesisCalls:1,sampledFrames:frames.length,synthesisFrameCount:synthesisFrames.length,sceneNotes,...(options.provider==='ollama'?{profile:OLLAMA_PROFILE.id,synthesisNotes:'compact'}:{})};
   return result;
 }
 
@@ -230,7 +243,7 @@ export function createOpenAIPayload(frames, meta, model, language = 'vi', goal =
 
 export async function analyze({ provider = 'gemini', key, model, frames, meta, language, goal, signal, fetcher = fetch }) {
   providerConfig(provider, key);
-  if(provider==='huggingface'||provider==='ollama')return analyzeVisionChat({provider,key,model,frames,meta,language,goal,signal,fetcher});
+  if(provider==='huggingface'||provider==='ollama')return analyzeVisionChat({provider,key,model,frames:provider==='ollama'?representativeFrames(frames,OLLAMA_PROFILE.images):frames,meta,language,goal,signal,fetcher});
   const pattern = provider === 'openai' ? /^gpt-[a-zA-Z0-9.-]+$/ : /^gemini-[a-zA-Z0-9.-]+$/;
   if (!pattern.test(model)) throw new Error('Tên model không hợp lệ cho nhà cung cấp đã chọn.');
   const url = provider === 'openai' ? 'https://api.openai.com/v1/responses' : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
